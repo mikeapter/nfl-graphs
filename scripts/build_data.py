@@ -128,25 +128,78 @@ def load_player_reg(season: int) -> pd.DataFrame | None:
     return pd.read_csv(p, low_memory=False)
 
 
+def load_team_reg(season: int) -> pd.DataFrame | None:
+    p = fetch(f"{REL}/stats_team/stats_team_reg_{season}.csv", CACHE_DIR / f"team_reg_{season}.csv")
+    if not p:
+        return None
+    return pd.read_csv(p, low_memory=False)
+
+
+# Raw stat columns shipped to the browser (the UI's stat catalog picks from these
+# and derives rates like completion% client-side).
+PLAYER_FIELDS = [
+    "games",
+    "completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions",
+    "passing_epa", "passing_cpoe", "passing_air_yards", "passing_first_downs", "sacks_suffered",
+    "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "rushing_fumbles_lost",
+    "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa",
+    "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch",
+    "target_share", "air_yards_share", "wopr", "racr",
+    "fantasy_points", "fantasy_points_ppr",
+]
+TEAM_FIELDS = [
+    "completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions",
+    "passing_epa", "passing_first_downs", "passing_air_yards", "sacks_suffered",
+    "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs",
+    "def_sacks", "def_interceptions", "def_tds", "def_pass_defended",
+    "penalties", "penalty_yards", "fg_made", "fg_att",
+]
+
+
 # ---------------------------------------------------------------------------
 # Computations
 # ---------------------------------------------------------------------------
-def compute_team_epa(pbp: pd.DataFrame) -> list[dict]:
-    """Offensive & defensive EPA per play (regular season, pass/rush plays)."""
+def _num(v, nd=2):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    f = float(v)
+    return int(f) if f.is_integer() else round(f, nd)
+
+
+def build_teams(pbp: pd.DataFrame, team_df, team_record: dict) -> list[dict]:
+    """One rich row per team: EPA per play + selected season totals + record."""
     df = pbp[(pbp["season_type"] == "REG") & (pbp["epa"].notna())]
     df = df[(df["pass"] == 1) | (df["rush"] == 1)]
     off = df.groupby("posteam")["epa"].agg(["mean", "count"])
-    dfn = df.groupby("defteam")["epa"].agg(["mean", "count"])
+    dfn = df.groupby("defteam")["epa"].mean()
+
+    tmap = {}
+    if team_df is not None:
+        tdf = team_df[team_df["season_type"] == "REG"] if "season_type" in team_df.columns else team_df
+        tmap = {r["team"]: r for _, r in tdf.iterrows()}
+
     out = []
     for abbr in TEAMS:
         if abbr not in off.index:
             continue
-        out.append({
+        row = {
             "team": abbr,
-            "off_epa": round(float(off.loc[abbr, "mean"]), 4),
-            "def_epa": round(float(dfn.loc[abbr, "mean"]), 4) if abbr in dfn.index else None,
+            "off_epa": _num(off.loc[abbr, "mean"], 4),
+            "def_epa": _num(dfn.loc[abbr], 4) if abbr in dfn.index else None,
             "off_plays": int(off.loc[abbr, "count"]),
-        })
+        }
+        tr = tmap.get(abbr)
+        if tr is not None:
+            for f in TEAM_FIELDS:
+                if f in tr:
+                    v = _num(tr[f])
+                    if v is not None:
+                        row[f] = v
+        rec = team_record.get(abbr)
+        if rec:
+            row.update({"w": rec["w"], "l": rec["l"], "t": rec["t"],
+                        "pf": rec["pf"], "pa": rec["pa"], "pd": rec["pf"] - rec["pa"]})
+        out.append(row)
     return out
 
 
@@ -171,64 +224,27 @@ def compute_team_weekly_epa(pbp: pd.DataFrame) -> dict[str, dict]:
     return res
 
 
-def compute_leaders(players: pd.DataFrame) -> dict:
-    """Top-N leaderboards per category from regular-season player totals."""
-    def top(df, sort_col, cols, ascending=False, minimum=None, min_col=None):
-        d = df.copy()
-        if min_col and minimum is not None:
-            d = d[d[min_col].fillna(0) >= minimum]
-        d = d[d[sort_col].notna()].sort_values(sort_col, ascending=ascending).head(TOP_N)
-        rows = []
-        for _, r in d.iterrows():
-            item = {
-                "player": r.get("player_display_name") or r.get("player_name"),
-                "team": r.get("recent_team"),
-                "pos": r.get("position"),
-                "games": int(r.get("games") or 0),
-                "headshot": (r.get("headshot_url") if isinstance(r.get("headshot_url"), str) else None),
-            }
-            for label, col in cols:
-                v = r.get(col)
-                if pd.isna(v):
-                    v = None
-                elif isinstance(v, float):
-                    v = round(float(v), 2)
-                else:
-                    v = int(v) if float(v).is_integer() else round(float(v), 2)
-                item[label] = v
-            rows.append(item)
-        return rows
-
-    passing = top(
-        players[players["attempts"].fillna(0) >= 100],
-        "passing_yards",
-        [("yards", "passing_yards"), ("tds", "passing_tds"), ("int", "passing_interceptions"),
-         ("epa", "passing_epa"), ("cpoe", "passing_cpoe"), ("att", "attempts")],
-    )
-    rushing = top(
-        players[players["carries"].fillna(0) >= 40],
-        "rushing_yards",
-        [("yards", "rushing_yards"), ("tds", "rushing_tds"), ("epa", "rushing_epa"),
-         ("att", "carries"), ("ypc", None)],
-    )
-    # ypc needs derivation
-    for row, (_, r) in zip(rushing, players[players["carries"].fillna(0) >= 40]
-                           .sort_values("rushing_yards", ascending=False).head(TOP_N).iterrows()):
-        car = float(r.get("carries") or 0)
-        row["ypc"] = round(float(r.get("rushing_yards") or 0) / car, 2) if car else None
-
-    receiving = top(
-        players[players["targets"].fillna(0) >= 30],
-        "receiving_yards",
-        [("yards", "receiving_yards"), ("rec", "receptions"), ("tds", "receiving_tds"),
-         ("epa", "receiving_epa"), ("tgt", "targets"), ("ypr", None)],
-    )
-    for row, (_, r) in zip(receiving, players[players["targets"].fillna(0) >= 30]
-                           .sort_values("receiving_yards", ascending=False).head(TOP_N).iterrows()):
-        rec = float(r.get("receptions") or 0)
-        row["ypr"] = round(float(r.get("receiving_yards") or 0) / rec, 2) if rec else None
-
-    return {"passing": passing, "rushing": rushing, "receiving": receiving}
+def build_players(pdf: pd.DataFrame) -> list[dict]:
+    """One row per relevant offensive player with a broad set of season stats."""
+    keep = pd.Series(False, index=pdf.index)
+    for col, thr in [("attempts", 5), ("carries", 5), ("targets", 3), ("fantasy_points_ppr", 1)]:
+        if col in pdf.columns:
+            keep = keep | (pdf[col].fillna(0) >= thr)
+    out = []
+    for _, r in pdf[keep].iterrows():
+        item = {
+            "player": r.get("player_display_name") or r.get("player_name"),
+            "team": r.get("recent_team"),
+            "pos": r.get("position"),
+            "grp": r.get("position_group"),
+        }
+        for f in PLAYER_FIELDS:
+            if f in r:
+                v = _num(r[f])
+                if v is not None:
+                    item[f] = v
+        out.append(item)
+    return out
 
 
 def build_standings_scores_trends(games_path: Path, season: int):
@@ -322,10 +338,13 @@ def main():
             print(f"  skipping {season} (missing pbp or player data)")
             continue
 
-        team_epa = compute_team_epa(pbp)
+        team_df = load_team_reg(season)
         weekly_epa = compute_team_weekly_epa(pbp)
-        leaders = compute_leaders(players)
         standings, scores, trends = build_standings_scores_trends(games_path, season)
+
+        team_record = {row["team"]: row for lst in standings.values() for row in lst}
+        teams = build_teams(pbp, team_df, team_record)
+        players_list = build_players(players)
 
         # merge weekly EPA into the point-diff trends
         for abbr, wk in weekly_epa.items():
@@ -336,8 +355,8 @@ def main():
 
         payload = {
             "season": season,
-            "team_epa": team_epa,
-            "leaders": leaders,
+            "teams": teams,
+            "players": players_list,
             "standings": standings,
             "scores": scores,
             "trends": trends,

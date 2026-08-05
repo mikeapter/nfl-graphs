@@ -22,56 +22,84 @@
         <span>Season</span>
         <select id="season-select" aria-label="Season"></select>
       </label>
-      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle theme"></button>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme"></button>
     </div>
   </header>
 
+  <div class="searchbar">
+    <svg class="search-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <input id="global-search" list="search-options" placeholder="Search a player or team…" autocomplete="off" />
+    <datalist id="search-options"></datalist>
+    <button id="search-clear" class="search-clear" type="button" aria-label="Clear" hidden>✕</button>
+  </div>
+
   <nav class="tabs" id="tabs" role="tablist">
-    <button class="tab active" data-view="efficiency" role="tab">Team Efficiency</button>
-    <button class="tab" data-view="leaders" role="tab">Player Leaders</button>
+    <button class="tab active" data-view="teams" role="tab">Teams</button>
+    <button class="tab" data-view="players" role="tab">Players</button>
     <button class="tab" data-view="standings" role="tab">Standings &amp; Scores</button>
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
   </nav>
 
   <main id="main">
-    <!-- Efficiency -->
-    <section class="view active" id="view-efficiency">
+    <!-- Teams explorer -->
+    <section class="view active" id="view-teams">
       <div class="view-head">
-        <h2>Team Efficiency — EPA per play</h2>
-        <p class="hint">Each logo is a team. Right = better offense. Up = better defense.
-          Dashed lines are the league average.</p>
+        <h2>Team Explorer</h2>
+        <div class="builder">
+          <div class="segmented" id="team-chart">
+            <button class="seg active" data-type="scatter">Scatter</button>
+            <button class="seg" data-type="bar">Bars</button>
+            <button class="seg" data-type="heatmap">Heatmap</button>
+          </div>
+          <label class="ctl" data-role="x"><span>X axis</span><select id="team-x"></select></label>
+          <label class="ctl" data-role="y"><span>Y axis</span><select id="team-y"></select></label>
+          <label class="ctl" data-role="rank"><span>Rank by</span><select id="team-rank"></select></label>
+          <label class="ctl" data-role="set"><span>Stat set</span><select id="team-set"></select></label>
+        </div>
+        <p class="hint" id="team-hint"></p>
       </div>
-      <div class="chart-wrap"><div id="epa-chart" class="chart tall"></div></div>
+      <div class="chart-wrap"><div id="team-chart-el" class="chart tall"></div></div>
     </section>
 
-    <!-- Leaders -->
-    <section class="view" id="view-leaders">
+    <!-- Players explorer -->
+    <section class="view" id="view-players">
       <div class="view-head">
-        <h2>Player Leaders</h2>
-        <div class="segmented" id="leader-cat">
-          <button class="seg active" data-cat="passing">Passing</button>
-          <button class="seg" data-cat="rushing">Rushing</button>
-          <button class="seg" data-cat="receiving">Receiving</button>
+        <h2>Player Explorer</h2>
+        <div class="builder">
+          <div class="segmented" id="player-pos">
+            <button class="seg active" data-pos="QB">QB</button>
+            <button class="seg" data-pos="RB">RB</button>
+            <button class="seg" data-pos="WR">WR</button>
+            <button class="seg" data-pos="TE">TE</button>
+            <button class="seg" data-pos="SKILL">All skill</button>
+          </div>
+          <div class="segmented" id="player-chart">
+            <button class="seg active" data-type="bar">Bars</button>
+            <button class="seg" data-type="scatter">Scatter</button>
+            <button class="seg" data-type="heatmap">Heatmap</button>
+          </div>
+          <label class="ctl" data-role="rank"><span>Rank by</span><select id="player-rank"></select></label>
+          <label class="ctl" data-role="x"><span>X axis</span><select id="player-x"></select></label>
+          <label class="ctl" data-role="y"><span>Y axis</span><select id="player-y"></select></label>
+          <label class="ctl" data-role="set"><span>Stat set</span><select id="player-set"></select></label>
+          <label class="ctl chk"><input type="checkbox" id="player-qual" checked /><span>Qualified only</span></label>
         </div>
-        <label class="stat-pick">
-          <span>Rank by</span>
-          <select id="leader-stat" aria-label="Stat"></select>
-        </label>
+        <p class="hint" id="player-hint"></p>
       </div>
-      <div class="chart-wrap"><div id="leader-chart" class="chart"></div></div>
-      <div class="table-wrap"><table id="leader-table"></table></div>
+      <div class="chart-wrap"><div id="player-chart-el" class="chart tall"></div></div>
+      <div class="table-wrap"><table id="player-table"></table></div>
     </section>
 
     <!-- Standings & Scores -->
     <section class="view" id="view-standings">
-      <div class="view-head"><h2>Standings</h2><p class="hint">Regular season. Sorted by win %, then point differential.</p></div>
+      <div class="view-head row">
+        <div><h2>Standings</h2><p class="hint">Regular season. Sorted by win %, then point differential.</p></div>
+        <button id="standings-save" class="save-btn" type="button">⬇ Save PNG</button>
+      </div>
       <div class="divisions" id="divisions"></div>
-      <div class="view-head" style="margin-top:8px">
+      <div class="view-head">
         <h2>Scores</h2>
-        <label class="stat-pick">
-          <span>Week</span>
-          <select id="week-select" aria-label="Week"></select>
-        </label>
+        <label class="ctl"><span>Week</span><select id="week-select" aria-label="Week"></select></label>
       </div>
       <div class="scores" id="scores"></div>
     </section>
@@ -80,10 +108,7 @@
     <section class="view" id="view-trends">
       <div class="view-head">
         <h2>Team Trends</h2>
-        <label class="stat-pick">
-          <span>Team</span>
-          <select id="team-select" aria-label="Team"></select>
-        </label>
+        <label class="ctl"><span>Team</span><select id="team-select" aria-label="Team"></select></label>
       </div>
       <div class="chart-wrap"><div id="trend-pd" class="chart"></div></div>
       <div class="chart-wrap"><div id="trend-epa" class="chart"></div></div>
