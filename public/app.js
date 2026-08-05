@@ -2,7 +2,24 @@
 (() => {
   "use strict";
 
-  const AXIS = "#93a1b8", LINE = "#263145", TEXT = "#e8edf6";
+  // Theme-aware chart colors (reassigned by applyTheme, then charts re-render).
+  const THEME_VALS = {
+    dark:  ["#93a1b8", "#263145", "#e8edf6", "#0f1622"],
+    light: ["#5b6675", "#dbe1ea", "#1a2230", "#ffffff"],
+  };
+  let AXIS, LINE, TEXT, TIP, theme = "dark";
+  [AXIS, LINE, TEXT, TIP] = THEME_VALS.dark;
+
+  function applyTheme(name) {
+    theme = THEME_VALS[name] ? name : "dark";
+    [AXIS, LINE, TEXT, TIP] = THEME_VALS[theme];
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("nflg-theme", theme); } catch (e) {}
+    const btn = $("#theme-toggle");
+    if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    if (state.data) renderAll();
+  }
+
   const state = { meta: null, season: null, data: null, leaderCat: "passing", team: null };
   const charts = {}; // id -> echarts instance
   const $ = (s) => document.querySelector(s);
@@ -33,6 +50,9 @@
     $("#week-select").addEventListener("change", renderScores);
     $("#team-select").addEventListener("change", () => { state.team = $("#team-select").value; renderTrends(); });
     window.addEventListener("resize", () => Object.values(charts).forEach((c) => c.resize()));
+    // theme toggle
+    $("#theme-toggle").textContent = theme === "dark" ? "☀️" : "🌙";
+    $("#theme-toggle").addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
 
     await loadSeason(state.meta.latest);
   }
@@ -104,7 +124,7 @@
       grid: { left: 58, right: 24, top: 26, bottom: 52 },
       tooltip: {
         trigger: "item",
-        backgroundColor: "#0f1622", borderColor: LINE, textStyle: { color: TEXT },
+        backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT },
         formatter: (p) => `<b>${teamMeta(p.name).name}</b><br/>Off EPA/play: ${signed(p.value[0])}<br/>Def EPA/play: ${signed(p.value[1])}`,
       },
       xAxis: {
@@ -166,7 +186,7 @@
     ec("leader-chart").setOption({
       backgroundColor: "transparent",
       grid: { left: 130, right: 40, top: 10, bottom: 24 },
-      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: "#0f1622", borderColor: LINE, textStyle: { color: TEXT } },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT } },
       xAxis: { type: "value", axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: LINE } } },
       yAxis: { type: "category", data: names, axisLabel: { color: TEXT, fontSize: 11 }, axisLine: { lineStyle: { color: LINE } } },
       series: [{
@@ -239,7 +259,7 @@
       backgroundColor: "transparent",
       title: { text: teamMeta(state.team).name + " — weekly point differential", left: 8, top: 4, textStyle: { color: TEXT, fontSize: 13, fontWeight: 600 } },
       grid: { left: 44, right: 20, top: 40, bottom: 30 },
-      tooltip: { trigger: "axis", backgroundColor: "#0f1622", borderColor: LINE, textStyle: { color: TEXT },
+      tooltip: { trigger: "axis", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT },
         formatter: (ps) => { const p = ps[0]; return `Week ${p.axisValue}<br/>${t.result[p.dataIndex]} · ${p.value >= 0 ? "+" : ""}${p.value}`; } },
       xAxis: { type: "category", data: t.weeks, axisLabel: { color: AXIS }, axisLine: { lineStyle: { color: LINE } } },
       yAxis: { type: "value", axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: LINE } } },
@@ -255,7 +275,7 @@
       title: { text: "Weekly EPA per play (offense vs defense)", left: 8, top: 4, textStyle: { color: TEXT, fontSize: 13, fontWeight: 600 } },
       legend: { data: ["Offense", "Defense"], top: 6, right: 10, textStyle: { color: AXIS } },
       grid: { left: 48, right: 20, top: 40, bottom: 30 },
-      tooltip: { trigger: "axis", backgroundColor: "#0f1622", borderColor: LINE, textStyle: { color: TEXT } },
+      tooltip: { trigger: "axis", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT } },
       xAxis: { type: "category", data: hasEpa ? t.epa_weeks : [], axisLabel: { color: AXIS }, axisLine: { lineStyle: { color: LINE } } },
       yAxis: { type: "value", axisLabel: { color: AXIS, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: LINE } } },
       series: [
@@ -264,6 +284,14 @@
       ],
     }, true);
   }
+
+  // Set theme before first paint of charts: saved choice, else system preference.
+  (function initTheme() {
+    let stored = null;
+    try { stored = localStorage.getItem("nflg-theme"); } catch (e) {}
+    const sys = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    applyTheme(stored || sys);
+  })();
 
   boot();
 })();

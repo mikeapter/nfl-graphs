@@ -1,4 +1,4 @@
-:root {
+:root, :root[data-theme="dark"] {
   --bg: #0b0f17;
   --panel: #131a26;
   --panel-2: #1a2233;
@@ -6,15 +6,30 @@
   --text: #e8edf6;
   --muted: #93a1b8;
   --accent: #4da3ff;
+  --on-accent: #06121f;
   --good: #34d399;
   --bad: #f87171;
+  --grad: #16233b;
   --radius: 14px;
   --maxw: 1080px;
+}
+:root[data-theme="light"] {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --panel-2: #eef1f6;
+  --line: #dbe1ea;
+  --text: #1a2230;
+  --muted: #5b6675;
+  --accent: #2563eb;
+  --on-accent: #ffffff;
+  --good: #059669;
+  --bad: #dc2626;
+  --grad: #dbe6ff;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: radial-gradient(1200px 600px at 50% -200px, #16233b 0%, var(--bg) 60%) fixed;
+  background: radial-gradient(1200px 600px at 50% -200px, var(--grad) 0%, var(--bg) 60%) fixed;
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -70,7 +85,15 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 12px 24px; }
 
 .segmented { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; margin: 8px 0; }
 .seg { background: transparent; color: var(--muted); border: none; border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
-.seg.active { background: var(--accent); color: #06121f; }
+.seg.active { background: var(--accent); color: var(--on-accent); }
+
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; font-size: 17px; line-height: 1;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent); }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 480px; }
