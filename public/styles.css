@@ -93,7 +93,8 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 12px 24px; }
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
 }
-.theme-toggle:hover { border-color: var(--accent); }
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.theme-toggle svg { display: block; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 480px; }

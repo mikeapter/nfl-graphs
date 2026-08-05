@@ -2,21 +2,32 @@
 (() => {
   "use strict";
 
-  // Theme-aware chart colors (reassigned by applyTheme, then charts re-render).
+  // Theme-aware chart colors: [axis, line, text, tooltip-bg, page-bg].
   const THEME_VALS = {
-    dark:  ["#93a1b8", "#263145", "#e8edf6", "#0f1622"],
-    light: ["#5b6675", "#dbe1ea", "#1a2230", "#ffffff"],
+    dark:  ["#93a1b8", "#263145", "#e8edf6", "#0f1622", "#0b0f17"],
+    light: ["#5b6675", "#dbe1ea", "#1a2230", "#ffffff", "#f4f6fa"],
   };
-  let AXIS, LINE, TEXT, TIP, theme = "dark";
-  [AXIS, LINE, TEXT, TIP] = THEME_VALS.dark;
+  let AXIS, LINE, TEXT, TIP, BG, theme = "dark";
+  [AXIS, LINE, TEXT, TIP, BG] = THEME_VALS.dark;
+
+  // Inline SVGs so the toggle renders identically on every OS/browser
+  // (emoji were falling back to a monochrome dash in Arial on Windows).
+  const ICON_SUN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M19.4 4.6l-1.8 1.8M6.4 17.6l-1.8 1.8"/></svg>';
+  const ICON_MOON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+
+  function setToggleIcon() {
+    const btn = $("#theme-toggle");
+    if (!btn) return;
+    btn.innerHTML = theme === "dark" ? ICON_SUN : ICON_MOON;
+    btn.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  }
 
   function applyTheme(name) {
     theme = THEME_VALS[name] ? name : "dark";
-    [AXIS, LINE, TEXT, TIP] = THEME_VALS[theme];
+    [AXIS, LINE, TEXT, TIP, BG] = THEME_VALS[theme];
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem("nflg-theme", theme); } catch (e) {}
-    const btn = $("#theme-toggle");
-    if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    setToggleIcon();
     if (state.data) renderAll();
   }
 
@@ -51,7 +62,7 @@
     $("#team-select").addEventListener("change", () => { state.team = $("#team-select").value; renderTrends(); });
     window.addEventListener("resize", () => Object.values(charts).forEach((c) => c.resize()));
     // theme toggle
-    $("#theme-toggle").textContent = theme === "dark" ? "☀️" : "🌙";
+    setToggleIcon();
     $("#theme-toggle").addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
 
     await loadSeason(state.meta.latest);
@@ -108,6 +119,23 @@
   const fmt = (v, d = 3) => (v == null ? "—" : (typeof v === "number" ? v.toFixed(d) : v));
   const signed = (v, d = 3) => (v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(d));
 
+  // Merged into every chart: a "Save PNG" download button (top-right) and an
+  // @mikeapter watermark (bottom-right) that is baked into the exported image.
+  function chartExtras(name) {
+    return {
+      toolbox: {
+        right: 8, top: 6, itemSize: 16, itemGap: 8,
+        iconStyle: { borderColor: AXIS },
+        emphasis: { iconStyle: { borderColor: TEXT } },
+        feature: { saveAsImage: { title: "Save PNG", name: name, pixelRatio: 2, backgroundColor: BG } },
+      },
+      graphic: [{
+        type: "text", right: 12, bottom: 8, z: 12, silent: true,
+        style: { text: "@mikeapter", fill: AXIS, opacity: 0.55, fontSize: 12, fontWeight: 600 },
+      }],
+    };
+  }
+
   // ---- Team Efficiency (EPA scatter) --------------------------------------
   function renderEPA() {
     const rows = state.data.team_epa.filter((t) => t.def_epa != null);
@@ -121,6 +149,7 @@
     }));
     ec("epa-chart").setOption({
       backgroundColor: "transparent",
+      ...chartExtras("nfl-team-efficiency-" + state.season),
       grid: { left: 58, right: 24, top: 26, bottom: 52 },
       tooltip: {
         trigger: "item",
@@ -185,7 +214,8 @@
 
     ec("leader-chart").setOption({
       backgroundColor: "transparent",
-      grid: { left: 130, right: 40, top: 10, bottom: 24 },
+      ...chartExtras("nfl-leaders-" + cat + "-" + key + "-" + state.season),
+      grid: { left: 130, right: 40, top: 30, bottom: 24 },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT } },
       xAxis: { type: "value", axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: LINE } } },
       yAxis: { type: "category", data: names, axisLabel: { color: TEXT, fontSize: 11 }, axisLine: { lineStyle: { color: LINE } } },
@@ -257,6 +287,7 @@
 
     ec("trend-pd").setOption({
       backgroundColor: "transparent",
+      ...chartExtras("nfl-" + state.team + "-pointdiff-" + state.season),
       title: { text: teamMeta(state.team).name + " — weekly point differential", left: 8, top: 4, textStyle: { color: TEXT, fontSize: 13, fontWeight: 600 } },
       grid: { left: 44, right: 20, top: 40, bottom: 30 },
       tooltip: { trigger: "axis", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT },
@@ -272,8 +303,9 @@
     const hasEpa = t.off_epa && t.epa_weeks;
     ec("trend-epa").setOption({
       backgroundColor: "transparent",
+      ...chartExtras("nfl-" + state.team + "-epa-" + state.season),
       title: { text: "Weekly EPA per play (offense vs defense)", left: 8, top: 4, textStyle: { color: TEXT, fontSize: 13, fontWeight: 600 } },
-      legend: { data: ["Offense", "Defense"], top: 6, right: 10, textStyle: { color: AXIS } },
+      legend: { data: ["Offense", "Defense"], top: 6, left: "center", textStyle: { color: AXIS } },
       grid: { left: 48, right: 20, top: 40, bottom: 30 },
       tooltip: { trigger: "axis", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT } },
       xAxis: { type: "category", data: hasEpa ? t.epa_weeks : [], axisLabel: { color: AXIS }, axisLine: { lineStyle: { color: LINE } } },

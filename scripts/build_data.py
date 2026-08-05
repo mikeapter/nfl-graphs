@@ -80,7 +80,17 @@ TEAMS = {
     "TEN": ("Tennessee Titans",       "AFC", "South", "#0C2340", "ten"),
     "WAS": ("Washington Commanders",  "NFC", "East",  "#5A1414", "was"),
 }
-LOGO = lambda abbr: f"https://a.espncdn.com/i/teamlogos/nfl/500/{TEAMS[abbr][4]}.png"
+LOGO_DIR = ROOT / "public" / "logos"
+ESPN_LOGO = lambda abbr: f"https://a.espncdn.com/i/teamlogos/nfl/500/{TEAMS[abbr][4]}.png"
+
+
+def download_logos():
+    """Fetch team logos to public/logos/ so they are served same-origin.
+    Same-origin images don't taint the <canvas>, which lets the charts export
+    to PNG. Missing ones fall back to nothing (chart still renders)."""
+    LOGO_DIR.mkdir(parents=True, exist_ok=True)
+    for abbr in TEAMS:
+        fetch(ESPN_LOGO(abbr), LOGO_DIR / f"{abbr}.png")
 
 
 # ---------------------------------------------------------------------------
@@ -341,13 +351,16 @@ def main():
         print("FATAL: no seasons built")
         sys.exit(1)
 
+    print("\n== Logos ==")
+    download_logos()
+
     meta = {
         "seasons": sorted(built, reverse=True),
         "latest": max(built),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "teams": {
             a: {"name": TEAMS[a][0], "conf": TEAMS[a][1], "div": TEAMS[a][2],
-                "color": TEAMS[a][3], "logo": LOGO(a)}
+                "color": TEAMS[a][3], "logo": f"logos/{a}.png"}
             for a in TEAMS
         },
     }
