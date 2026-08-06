@@ -338,8 +338,8 @@
   }
   async function ensureField() {
     if (state.field[state.season]) return state.field[state.season];
-    try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = f.players; return f.players; }
-    catch (e) { state.field[state.season] = {}; return {}; }
+    try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = { players: f.players || {}, teams: f.teams || {} }; return state.field[state.season]; }
+    catch (e) { state.field[state.season] = { players: {}, teams: {} }; return state.field[state.season]; }
   }
   async function ensureCollege() {
     if (state.college[state.season]) return state.college[state.season];
@@ -732,7 +732,7 @@
 
   async function renderField(p) {
     const sec = $("#prof-field-section");
-    const fd = (await ensureField())[p.id];
+    const fd = (await ensureField()).players[p.id];
     if (!fd || !(fd.pass || fd.tgt || fd.rush)) { sec.hidden = true; sec.innerHTML = ""; return; }
     sec.hidden = false;
     const b = bucket(p.pos), maps = [];
@@ -798,6 +798,67 @@
     return s + "</svg>";
   }
 
+  const DEF_COLOR = "#d1493f"; // yards allowed heat
+  async function renderTeamDefField(abbr) {
+    const sec = $("#prof-field-section");
+    const fd = (await ensureField()).teams[abbr];
+    if (!fd || !(fd.pass || fd.rush)) { sec.hidden = true; sec.innerHTML = ""; return; }
+    sec.hidden = false;
+    const maps = [];
+    if (fd.pass) maps.push(["Pass defense", "pass"]);
+    if (fd.rush) maps.push(["Rush defense", "rush"]);
+    let m = ["pass", "rush"].includes(state.fieldMap) ? state.fieldMap : "pass";
+    if (!maps.find((x) => x[1] === m)) m = maps[0][1];
+    state.fieldMap = m;
+    const toggle = maps.length > 1 ? `<div class="segmented" id="field-toggle">${maps.map(([l, k]) => `<button class="seg ${k === m ? "active" : ""}" data-fm="${k}">${l}</button>`).join("")}</div>` : "";
+    const svg = m === "rush" ? defRushSVG(fd.rush) : defGridSVG(fd.pass);
+    sec.innerHTML = `<div class="view-head"><div class="fieldbar"><h2>Defense field map</h2>${toggle}</div><p class="hint">Where opponents attack ${teamMeta(abbr).name} · darker = more yards allowed · regular season</p></div><div class="chart-wrap field-holder">${svg}</div>`;
+    sec.querySelectorAll("#field-toggle .seg").forEach((b) => b.addEventListener("click", () => { state.fieldMap = b.dataset.fm; renderTeamDefField(abbr); }));
+  }
+  function defGridSVG(grid) {
+    const W = 360, H = 430, padX = 54, padTop = 16, padBot = 34, cols = 3, rows = 4;
+    const gw = (W - padX - 14) / cols, gh = (H - padTop - padBot) / rows;
+    const maxY = Math.max(1, ...grid.map((c) => c[2]));
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" font-family="-apple-system,Segoe UI,Roboto,sans-serif">`;
+    s += `<rect x="${padX}" y="${padTop}" width="${gw * cols}" height="${gh * rows}" fill="${hexA(DEF_COLOR, 0.04)}" stroke="${LINE}"/>`;
+    for (let d = 0; d < rows; d++) {
+      const rowTop = padTop + (rows - 1 - d) * gh;
+      s += `<text x="${padX - 6}" y="${rowTop + gh / 2 + 3}" text-anchor="end" font-size="9" fill="${AXIS}">${DEPTHS[d].split(" ")[0]}</text>`;
+      for (let dir = 0; dir < cols; dir++) {
+        const cell = grid[dir * 4 + d], tgt = cell[0], yds = cell[2], x = padX + dir * gw, alpha = 0.12 + 0.78 * (yds / maxY);
+        s += `<rect x="${x + 1}" y="${rowTop + 1}" width="${gw - 2}" height="${gh - 2}" rx="3" fill="${tgt ? hexA(DEF_COLOR, alpha) : "transparent"}" stroke="${LINE}" stroke-width="0.5"/>`;
+        if (tgt) {
+          s += `<text x="${x + gw / 2}" y="${rowTop + gh / 2}" text-anchor="middle" font-size="15" font-weight="700" fill="${TEXT}">${yds}</text>`;
+          s += `<text x="${x + gw / 2}" y="${rowTop + gh / 2 + 15}" text-anchor="middle" font-size="9" fill="${AXIS}">${cell[1]}/${tgt} · ${yds}y</text>`;
+        }
+      }
+    }
+    const losY = padTop + (rows - 1) * gh;
+    s += `<line x1="${padX - 4}" y1="${losY}" x2="${padX + gw * cols + 4}" y2="${losY}" stroke="${DEF_COLOR}" stroke-width="2"/>`;
+    s += `<text x="${padX - 8}" y="${losY - 3}" text-anchor="end" font-size="8" fill="${DEF_COLOR}">LOS</text>`;
+    for (let dir = 0; dir < cols; dir++) s += `<text x="${padX + dir * gw + gw / 2}" y="${H - 12}" text-anchor="middle" font-size="10" fill="${AXIS}">${DIRS[dir]}</text>`;
+    return s + "</svg>";
+  }
+  function defRushSVG(grid) {
+    const W = 360, H = 240, padX = 16, padTop = 40, zw = (W - 2 * padX) / 7, zh = 120;
+    const maxY = Math.max(1, ...grid.map((c) => c[1]));
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" font-family="-apple-system,Segoe UI,Roboto,sans-serif">`;
+    s += `<text x="${W / 2}" y="20" text-anchor="middle" font-size="10" fill="${AXIS}">↑ downfield</text>`;
+    for (let i = 0; i < 7; i++) {
+      const cell = grid[i], car = cell[0], yds = cell[1], x = padX + i * zw, alpha = 0.12 + 0.78 * (yds / maxY);
+      s += `<rect x="${x + 1}" y="${padTop + 1}" width="${zw - 2}" height="${zh - 2}" rx="3" fill="${car ? hexA(DEF_COLOR, alpha) : "transparent"}" stroke="${LINE}" stroke-width="0.5"/>`;
+      if (car) {
+        s += `<text x="${x + zw / 2}" y="${padTop + zh / 2 - 2}" text-anchor="middle" font-size="15" font-weight="700" fill="${TEXT}">${yds}</text>`;
+        s += `<text x="${x + zw / 2}" y="${padTop + zh / 2 + 15}" text-anchor="middle" font-size="9" fill="${AXIS}">${car} car · ${(yds / car).toFixed(1)}/c</text>`;
+      }
+      s += `<text x="${x + zw / 2}" y="${padTop + zh + 16}" text-anchor="middle" font-size="10" fill="${AXIS}">${RUSH_GAPS[i]}</text>`;
+    }
+    const losY = padTop + zh;
+    s += `<line x1="${padX - 2}" y1="${losY}" x2="${W - padX + 2}" y2="${losY}" stroke="${DEF_COLOR}" stroke-width="2"/>`;
+    s += `<text x="${padX}" y="${losY + 30}" font-size="9" fill="${DEF_COLOR}">Line of scrimmage · yards allowed by gap</text>`;
+    return s + "</svg>";
+  }
+
   function showTeamPage(abbr) {
     resetProfileChrome();
     const t = state.data.teams.find((x) => x.team === abbr);
@@ -817,11 +878,11 @@
     $("#prof-compare").innerHTML = `<option value="">Compare with…</option>` + opts.map((a) => `<option value="${a}">${teamMeta(a).name}</option>`).join("");
     $("#prof-compare-ctl").hidden = false;
     $("#prof-log-ctl").style.display = "none"; $("#prof-chart2-wrap").style.display = "";
-    $("#prof-field-section").hidden = true;
     activate("profile", null);
     radarChart("prof-radar", [{ name: teamMeta(abbr).name, color: color(abbr), vals: PROFILE_TEAM.map((k) => Math.round((rankPct(teams.map((x) => pval(x, TSTAT[k])), pval(t, TSTAT[k]), TSTAT[k].hi) || { pct: 0 }).pct * 100)) }], PROFILE_TEAM.map((k) => TSTAT[k].l), "Percentile vs NFL");
     trendPd("prof-chart1", abbr, `nfl-${abbr}-pointdiff-${state.season}`);
     trendEpa("prof-chart2", abbr, `nfl-${abbr}-epa-${state.season}`);
+    renderTeamDefField(abbr);
   }
 
   function radarChart(elId, seriesData, indicatorLabels, subtext) {

@@ -393,6 +393,46 @@ def build_field(pbp: pd.DataFrame, ids: set) -> dict:
     return out
 
 
+def build_def_field(pbp: pd.DataFrame) -> dict:
+    """Per-DEFENSE-team field maps (mirror of build_field, keyed by defteam):
+      pass : 3 dirs x 4 depth buckets, [targets faced, completions allowed, yards allowed]
+      rush : 7 gap zones, [carries faced, yards allowed]."""
+    DIRS = {"left": 0, "middle": 1, "right": 2}
+    GAP = {("left", "end"): 0, ("left", "tackle"): 1, ("left", "guard"): 2, ("middle", None): 3,
+           ("right", "guard"): 4, ("right", "tackle"): 5, ("right", "end"): 6}
+    def depth(ay):
+        if ay < 0: return 0
+        if ay < 10: return 1
+        if ay < 20: return 2
+        return 3
+    out: dict[str, dict] = {}
+    df = pbp[pbp["season_type"] == "REG"]
+
+    pa = df[(df["pass_attempt"] == 1) & df["pass_location"].notna() & df["air_yards"].notna()]
+    for _, r in pa.iterrows():
+        di = DIRS.get(r["pass_location"])
+        if di is None:
+            continue
+        d = out.setdefault(r["defteam"], {}).setdefault("pass", [[0, 0, 0] for _ in range(12)])
+        idx = di * 4 + depth(r["air_yards"])
+        comp = 1 if r.get("complete_pass") == 1 else 0
+        d[idx][0] += 1; d[idx][1] += comp
+        if comp and not pd.isna(r.get("yards_gained")):
+            d[idx][2] += int(r["yards_gained"])
+
+    ru = df[(df["rush_attempt"] == 1) & df["run_location"].notna()]
+    for _, r in ru.iterrows():
+        gap = r.get("run_gap"); gap = gap if isinstance(gap, str) else None
+        zi = GAP.get((r["run_location"], gap))
+        if zi is None:
+            zi = GAP.get((r["run_location"], None), 3)
+        g = out.setdefault(r["defteam"], {}).setdefault("rush", [[0, 0] for _ in range(7)])
+        g[zi][0] += 1
+        if not pd.isna(r.get("yards_gained")):
+            g[zi][1] += int(r["yards_gained"])
+    return {k: v for k, v in out.items() if k in TEAMS}
+
+
 def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
     """Compact per-player weekly (regular-season) game log for the shipped players."""
     df = pweek[(pweek["season_type"] == "REG") & (pweek["player_id"].isin(ids))]
@@ -650,9 +690,10 @@ def main():
         # field maps (separate file, lazy-loaded by the profile pages)
         try:
             field = build_field(pbp, ids)
+            def_field = build_def_field(pbp)
             ff = DATA_DIR / f"field_{season}.json"
-            ff.write_text(json.dumps({"season": season, "players": field}, separators=(",", ":")), encoding="utf-8")
-            print(f"  wrote {ff.name}  ({ff.stat().st_size // 1024} KB)")
+            ff.write_text(json.dumps({"season": season, "players": field, "teams": def_field}, separators=(",", ":")), encoding="utf-8")
+            print(f"  wrote {ff.name}  ({ff.stat().st_size // 1024} KB, {len(def_field)} team def maps)")
         except Exception as e:  # noqa: BLE001
             print(f"  !! field maps skipped: {e}")
 
