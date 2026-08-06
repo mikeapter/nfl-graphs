@@ -115,6 +115,42 @@
       <div class="chart-wrap"><div id="trend-pd" class="chart"></div></div>
       <div class="chart-wrap"><div id="trend-epa" class="chart"></div></div>
     </section>
+
+    <!-- Profile page -->
+    <section class="view" id="view-profile">
+      <div class="pagebar">
+        <button class="ghost-btn" id="prof-back">← Back</button>
+        <div class="pagebar-right">
+          <label class="ctl" id="prof-compare-ctl"><span>Compare with</span><select id="prof-compare"></select></label>
+          <button class="ghost-btn" id="prof-copy">🔗 Copy link</button>
+          <button class="save-btn" id="prof-save">⬇ Save card</button>
+        </div>
+      </div>
+      <div id="profile-body"></div>
+      <div class="prof-grid">
+        <div class="chart-wrap"><div id="prof-radar" class="chart"></div></div>
+        <div class="chart-wrap">
+          <div class="builder" id="prof-log-ctl"><label class="ctl"><span>Game log</span><select id="prof-log-stat"></select></label></div>
+          <div id="prof-chart1" class="chart"></div>
+        </div>
+        <div class="chart-wrap" id="prof-chart2-wrap"><div id="prof-chart2" class="chart"></div></div>
+      </div>
+    </section>
+
+    <!-- Compare page -->
+    <section class="view" id="view-compare">
+      <div class="pagebar">
+        <button class="ghost-btn" id="cmp-back">← Back</button>
+        <div class="pagebar-right"><button class="ghost-btn" id="cmp-copy">🔗 Copy link</button></div>
+      </div>
+      <div class="cmp-pickers">
+        <select id="cmp-a" aria-label="Compare A"></select>
+        <span class="vs">vs</span>
+        <select id="cmp-b" aria-label="Compare B"></select>
+      </div>
+      <div class="chart-wrap"><div id="cmp-radar" class="chart tall"></div></div>
+      <div class="table-wrap"><table id="cmp-table"></table></div>
+    </section>
   </main>
 
   <footer class="foot">
@@ -122,13 +158,6 @@
     <span>Built by <a href="https://twitter.com/mikeapter" target="_blank" rel="noopener">@mikeapter</a>
       · Data: nflverse · Logos: ESPN · Not affiliated with the NFL</span>
   </footer>
-
-  <div id="profile" class="modal" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true">
-      <button class="modal-close" id="profile-close" aria-label="Close">✕</button>
-      <div id="profile-body"></div>
-    </div>
-  </div>
 
   <script src="./vendor/echarts.min.js"></script>
   <script src="./app.js"></script>

@@ -135,6 +135,33 @@ def load_team_reg(season: int) -> pd.DataFrame | None:
     return pd.read_csv(p, low_memory=False)
 
 
+def load_player_week(season: int) -> pd.DataFrame | None:
+    p = fetch(f"{REL}/stats_player/stats_player_week_{season}.csv", CACHE_DIR / f"player_week_{season}.csv")
+    if not p:
+        return None
+    return pd.read_csv(p, low_memory=False)
+
+
+def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
+    """Compact per-player weekly (regular-season) game log for the shipped players."""
+    df = pweek[(pweek["season_type"] == "REG") & (pweek["player_id"].isin(ids))]
+    g = lambda r, c: (0 if pd.isna(r.get(c)) else r.get(c))
+    out: dict[str, dict] = {}
+    for pid, grp in df.groupby("player_id"):
+        grp = grp.sort_values("week")
+        rec = {"wk": [], "py": [], "ry": [], "recy": [], "rec": [], "td": [], "ppr": []}
+        for _, r in grp.iterrows():
+            rec["wk"].append(int(r["week"]))
+            rec["py"].append(int(g(r, "passing_yards")))
+            rec["ry"].append(int(g(r, "rushing_yards")))
+            rec["recy"].append(int(g(r, "receiving_yards")))
+            rec["rec"].append(int(g(r, "receptions")))
+            rec["td"].append(int(g(r, "passing_tds") + g(r, "rushing_tds") + g(r, "receiving_tds")))
+            rec["ppr"].append(round(float(g(r, "fantasy_points_ppr")), 1))
+        out[pid] = rec
+    return out
+
+
 # Raw stat columns shipped to the browser (the UI's stat catalog picks from these
 # and derives rates like completion% client-side).
 PLAYER_FIELDS = [
@@ -349,6 +376,15 @@ def main():
         team_record = {row["team"]: row for lst in standings.values() for row in lst}
         teams = build_teams(pbp, team_df, team_record)
         players_list = build_players(players)
+
+        # weekly game logs (separate file, lazy-loaded by the profile pages)
+        pweek = load_player_week(season)
+        if pweek is not None:
+            ids = {p["id"] for p in players_list if p.get("id")}
+            weekly = build_weekly(pweek, ids)
+            wf = DATA_DIR / f"weekly_{season}.json"
+            wf.write_text(json.dumps({"season": season, "players": weekly}, separators=(",", ":")), encoding="utf-8")
+            print(f"  wrote {wf.name}  ({wf.stat().st_size // 1024} KB)")
 
         # merge weekly EPA into the point-diff trends
         for abbr, wk in weekly_epa.items():
