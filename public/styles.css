@@ -161,6 +161,14 @@ select {
 .field-holder { display: flex; justify-content: center; padding: 12px; }
 .field-holder svg { max-width: 420px; }
 
+/* College filter input */
+.cfilter {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 12px; font-size: 14px; min-width: 180px;
+}
+.cfilter:focus { outline: none; border-color: var(--accent); }
+.cfilter::placeholder { color: var(--muted); }
+
 .tabs {
   max-width: var(--maxw); margin: 8px auto 0; padding: 0 12px;
   display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;

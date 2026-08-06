@@ -218,6 +218,76 @@ def enrich_advanced(players_list, season, xwalk):
             p["snap_pct"] = snap_pct[gid]
 
 
+CFB_URL = "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main/player_stats/parquet"
+
+
+def load_cfb(season: int):
+    p = fetch(f"{CFB_URL}/player_stats_{season}.parquet", CACHE_DIR / f"cfb_{season}.parquet")
+    if not p:
+        return None
+    cols = ["game_id", "team", "conference",
+            "completion_player_id", "completion_player", "completion_yds",
+            "incompletion_player_id", "interception_thrown_player_id",
+            "rush_player_id", "rush_player", "rush_yds",
+            "reception_player_id", "reception_player", "reception_yds", "target_player_id"]
+    return pd.read_parquet(p, columns=cols)
+
+
+def build_college(df) -> list[dict]:
+    """Aggregate cfbfastR play rows into per-player season totals (no TDs — the
+    source's TD columns are inconsistent). Reliable: yards, cmp/att, int, car,
+    rec, tgt, games."""
+    from collections import defaultdict
+    acc = defaultdict(lambda: {"team": None, "conf": None, "cmp": 0, "att": 0, "pyd": 0.0,
+                               "int": 0, "car": 0, "ryd": 0.0, "rec": 0, "tgt": 0, "recyd": 0.0, "g": set()})
+    names = {}
+    def setmeta(pid, team, conf, gid):
+        a = acc[pid]
+        if a["team"] is None:
+            a["team"] = team; a["conf"] = conf
+        a["g"].add(gid)
+
+    for r in df.itertuples(index=False):
+        gid = r.game_id
+        if pd.notna(r.completion_player_id):
+            setmeta(r.completion_player_id, r.team, r.conference, gid); a = acc[r.completion_player_id]
+            a["cmp"] += 1; a["att"] += 1
+            if pd.notna(r.completion_yds): a["pyd"] += r.completion_yds
+            if isinstance(r.completion_player, str): names.setdefault(r.completion_player_id, r.completion_player)
+        if pd.notna(r.incompletion_player_id):
+            setmeta(r.incompletion_player_id, r.team, r.conference, gid); acc[r.incompletion_player_id]["att"] += 1
+        if pd.notna(r.interception_thrown_player_id):
+            setmeta(r.interception_thrown_player_id, r.team, r.conference, gid); acc[r.interception_thrown_player_id]["int"] += 1
+        if pd.notna(r.rush_player_id):
+            setmeta(r.rush_player_id, r.team, r.conference, gid); a = acc[r.rush_player_id]
+            a["car"] += 1
+            if pd.notna(r.rush_yds): a["ryd"] += r.rush_yds
+            if isinstance(r.rush_player, str): names.setdefault(r.rush_player_id, r.rush_player)
+        if pd.notna(r.reception_player_id):
+            setmeta(r.reception_player_id, r.team, r.conference, gid); a = acc[r.reception_player_id]
+            a["rec"] += 1
+            if pd.notna(r.reception_yds): a["recyd"] += r.reception_yds
+            if isinstance(r.reception_player, str): names.setdefault(r.reception_player_id, r.reception_player)
+        if pd.notna(r.target_player_id):
+            setmeta(r.target_player_id, r.team, r.conference, gid); acc[r.target_player_id]["tgt"] += 1
+
+    out = []
+    for pid, a in acc.items():
+        if not (a["att"] >= 30 or a["car"] >= 25 or a["tgt"] >= 15):
+            continue
+        role = "QB" if a["att"] >= 50 else "RB" if (a["car"] >= a["rec"] and a["car"] >= 20) else "WR"
+        row = {"id": str(pid), "player": names.get(pid, str(pid)), "team": a["team"],
+               "conf": a["conf"], "pos": role, "games": len(a["g"])}
+        for k, key in [("cmp", "cmp"), ("att", "att"), ("int", "int"), ("car", "car"), ("rec", "rec"), ("tgt", "tgt")]:
+            if a[key]:
+                row[k] = a[key]
+        for k, key in [("pyd", "pyd"), ("ryd", "ryd"), ("recyd", "recyd")]:
+            if a[key]:
+                row[k] = int(round(a[key]))
+        out.append(row)
+    return out
+
+
 def build_field(pbp: pd.DataFrame, ids: set) -> dict:
     """Per-player field maps from play-by-play:
       pass  (QB throws) / tgt (targets) : 3 dirs x 4 depth buckets, [att, comp, yards]
@@ -491,6 +561,7 @@ def main():
     print(f"crosswalk: {len(XWALK)} pfr-gsis ids")
 
     built = []
+    college_built = []
     for season in SEASONS:
         print(f"\n== Season {season} ==")
         pbp = load_pbp(season)
@@ -531,6 +602,18 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"  !! field maps skipped: {e}")
 
+        # college players (separate file, lazy-loaded by the College tab)
+        try:
+            cfb = load_cfb(season)
+            if cfb is not None and len(cfb):
+                college = build_college(cfb)
+                cf = DATA_DIR / f"college_{season}.json"
+                cf.write_text(json.dumps({"season": season, "players": college}, separators=(",", ":")), encoding="utf-8")
+                print(f"  wrote {cf.name}  ({cf.stat().st_size // 1024} KB, {len(college)} players)")
+                college_built.append(season)
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! college skipped: {e}")
+
         # merge weekly EPA into the point-diff trends
         for abbr, wk in weekly_epa.items():
             t = trends.setdefault(abbr, {"weeks": [], "pd": [], "result": []})
@@ -560,6 +643,7 @@ def main():
 
     meta = {
         "seasons": sorted(built, reverse=True),
+        "college_seasons": sorted(college_built, reverse=True),
         "latest": max(built),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "teams": {

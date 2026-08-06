@@ -38,6 +38,7 @@
     <button class="tab" data-view="players" role="tab">Players</button>
     <button class="tab" data-view="standings" role="tab">Standings &amp; Scores</button>
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
+    <button class="tab" data-view="college" role="tab">College</button>
   </nav>
 
   <main id="main">
@@ -136,6 +137,26 @@
         <div class="chart-wrap" id="prof-chart2-wrap"><div id="prof-chart2" class="chart"></div></div>
       </div>
       <div id="prof-field-section" hidden></div>
+    </section>
+
+    <!-- College -->
+    <section class="view" id="view-college">
+      <div class="view-head">
+        <h2>College Players</h2>
+        <div class="builder">
+          <div class="segmented" id="college-cat">
+            <button class="seg active" data-cat="Passing">Passing</button>
+            <button class="seg" data-cat="Rushing">Rushing</button>
+            <button class="seg" data-cat="Receiving">Receiving</button>
+          </div>
+          <label class="ctl"><span>Conference</span><select id="college-conf"></select></label>
+          <label class="ctl"><span>Rank by</span><select id="college-rank"></select></label>
+          <input id="college-filter" class="cfilter" placeholder="Filter by name…" autocomplete="off" />
+        </div>
+        <p class="hint" id="college-hint"></p>
+      </div>
+      <div class="chart-wrap"><div id="college-chart" class="chart tall"></div></div>
+      <div class="table-wrap"><table id="college-table"></table></div>
     </section>
 
     <!-- Compare page -->

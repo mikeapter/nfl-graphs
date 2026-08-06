@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["teams", "players", "standings", "trends"];
+  const TABS = ["teams", "players", "standings", "trends", "college"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -23,6 +23,7 @@
     teamHeat: [], playerHeat: [], playerQual: true, playerSort: null,
     team: null, focus: null, searchIndex: {}, prevTab: "teams", profileEntity: null, logStat: "py",
     field: {}, fieldMap: null,
+    college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
   };
   const charts = {};
 
@@ -142,6 +143,37 @@
   const TSTAT = Object.fromEntries(TEAM_STATS.map((s) => [s.k, s]));
   const PSTAT = Object.fromEntries(PLAYER_STATS.map((s) => [s.k, s]));
 
+  // Stat groups for the dropdowns (offense/defense separation, etc.)
+  const TEAM_DEF = new Set(["def_epa", "papg", "pa", "def_sacks", "def_interceptions", "def_pass_defended", "def_tds"]);
+  const TEAM_OTHER = new Set(["net_epa", "pd", "w", "penalties", "penalty_yards", "fg_made"]);
+  const teamGroupOf = (k) => TEAM_DEF.has(k) ? "Defense" : TEAM_OTHER.has(k) ? "Overall" : "Offense";
+  const TEAM_GROUP_ORDER = ["Offense", "Defense", "Overall"];
+  const PL_PASS = new Set(["passing_yards", "pass_ypg", "passing_tds", "passing_epa", "passing_cpoe", "cmp_pct", "ypa", "td_pct", "int_pct", "passing_interceptions", "attempts", "completions", "passing_first_downs", "passing_air_yards", "sacks_suffered"]);
+  const PL_RUSH = new Set(["carries", "rushing_yards", "rush_ypg", "rushing_tds", "rushing_epa", "ypc", "rushing_first_downs"]);
+  const PL_REC = new Set(["targets", "receptions", "receiving_yards", "rec_ypg", "receiving_tds", "receiving_epa", "ypr", "catch_pct", "ypt", "adot", "receiving_first_downs", "target_share", "air_yards_share", "wopr", "racr", "receiving_yards_after_catch"]);
+  const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
+  const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Overall", "Next Gen"];
+
+  // College stat catalog (reliable cfbfastR aggregates — no TDs in the source)
+  const CSTAT = {
+    pyd: { k: "pyd", l: "Passing yards", hi: true }, cmp: { k: "cmp", l: "Completions", hi: true },
+    att: { k: "att", l: "Pass attempts", hi: true }, int: { k: "int", l: "Interceptions", hi: false },
+    cmp_pct: { k: "cmp_pct", l: "Completion %", hi: true, d: 1, fn: (p) => p.att ? 100 * (p.cmp || 0) / p.att : null },
+    ypa: { k: "ypa", l: "Yards / attempt", hi: true, d: 2, fn: (p) => p.att ? (p.pyd || 0) / p.att : null },
+    car: { k: "car", l: "Carries", hi: true }, ryd: { k: "ryd", l: "Rushing yards", hi: true },
+    ypc: { k: "ypc", l: "Yards / carry", hi: true, d: 2, fn: (p) => p.car ? (p.ryd || 0) / p.car : null },
+    rec: { k: "rec", l: "Receptions", hi: true }, tgt: { k: "tgt", l: "Targets", hi: true },
+    recyd: { k: "recyd", l: "Receiving yards", hi: true },
+    ypr: { k: "ypr", l: "Yards / reception", hi: true, d: 2, fn: (p) => p.rec ? (p.recyd || 0) / p.rec : null },
+    catch_pct: { k: "catch_pct", l: "Catch %", hi: true, d: 1, fn: (p) => p.tgt ? 100 * (p.rec || 0) / p.tgt : null },
+    games: { k: "games", l: "Games", hi: true },
+  };
+  const COLLEGE_CAT = {
+    Passing: { filter: (p) => (p.att || 0) >= 50, rank: "pyd", stats: ["pyd", "cmp", "att", "cmp_pct", "ypa", "int"] },
+    Rushing: { filter: (p) => (p.car || 0) >= 25, rank: "ryd", stats: ["ryd", "car", "ypc"] },
+    Receiving: { filter: (p) => (p.rec || 0) >= 15 || (p.tgt || 0) >= 15, rank: "recyd", stats: ["recyd", "rec", "tgt", "ypr", "catch_pct"] },
+  };
+
   const pval = (e, stat) => { const v = stat.fn ? stat.fn(e) : e[stat.k]; return v == null || (typeof v === "number" && isNaN(v)) ? null : v; };
   const pfmt = (v, stat) => { if (v == null) return "—"; const d = stat.d || 0; return d === 0 ? Math.round(v).toLocaleString("en-US") : (+v).toFixed(d); };
 
@@ -170,9 +202,11 @@
     setToggleIcon();
     $("#theme-toggle").addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
 
-    // Builders
-    fillSelect($("#team-x"), TEAM_STATS, state.teamX); fillSelect($("#team-y"), TEAM_STATS, state.teamY);
-    fillSelect($("#team-rank"), TEAM_STATS, state.teamRank); fillSets($("#team-set"), TEAM_SETS, state.teamSet);
+    // Builders — axis options grouped (team: Offense/Defense/Overall)
+    fillSelectGrouped($("#team-x"), TEAM_STATS, TEAM_GROUP_ORDER, teamGroupOf, state.teamX);
+    fillSelectGrouped($("#team-y"), TEAM_STATS, TEAM_GROUP_ORDER, teamGroupOf, state.teamY);
+    fillSelectGrouped($("#team-rank"), TEAM_STATS, TEAM_GROUP_ORDER, teamGroupOf, state.teamRank);
+    fillSets($("#team-set"), TEAM_SETS, state.teamSet);
     state.teamHeat = TEAM_SETS[state.teamSet].slice();
     segmented("#team-chart", (v) => { state.teamChart = v; teamControls(); renderTeams(); });
     $("#team-x").addEventListener("change", (e) => { state.teamX = e.target.value; renderTeams(); });
@@ -180,8 +214,10 @@
     $("#team-rank").addEventListener("change", (e) => { state.teamRank = e.target.value; renderTeams(); });
     $("#team-set").addEventListener("change", (e) => { state.teamSet = e.target.value; state.teamHeat = TEAM_SETS[e.target.value].slice(); teamChips(); renderTeams(); });
 
-    fillSelect($("#player-rank"), PLAYER_STATS, state.playerRank); fillSelect($("#player-x"), PLAYER_STATS, state.playerX);
-    fillSelect($("#player-y"), PLAYER_STATS, state.playerY); fillSets($("#player-set"), PLAYER_SETS, state.playerSet);
+    fillSelectGrouped($("#player-rank"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerRank);
+    fillSelectGrouped($("#player-x"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerX);
+    fillSelectGrouped($("#player-y"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerY);
+    fillSets($("#player-set"), PLAYER_SETS, state.playerSet);
     state.playerHeat = PLAYER_SETS[state.playerSet].slice();
     segmented("#player-pos", (v) => { applyPlayerDefaults(v); renderPlayers(); });
     segmented("#player-chart", (v) => { state.playerChart = v; playerControls(); renderPlayers(); });
@@ -199,6 +235,14 @@
     $("#search-clear").addEventListener("click", clearSearch);
     $("#player-table").addEventListener("click", onTableClick);
     $("#divisions").addEventListener("click", (e) => { const r = e.target.closest(".divrow"); if (r && r.dataset.team) go(`#/team/${r.dataset.team}${seasonSuffix()}`); });
+
+    // College builder
+    fillCollegeRank(state.collegeCat, state.collegeRank);
+    segmented("#college-cat", (v) => { state.collegeCat = v; state.collegeRank = COLLEGE_CAT[v].rank; state.collegeSort = null; fillCollegeRank(v, state.collegeRank); renderCollege(); });
+    $("#college-conf").addEventListener("change", (e) => { state.collegeConf = e.target.value; renderCollege(); });
+    $("#college-rank").addEventListener("change", (e) => { state.collegeRank = e.target.value; state.collegeSort = null; renderCollege(); });
+    $("#college-filter").addEventListener("input", (e) => { state.collegeFilter = e.target.value.toLowerCase(); renderCollege(); });
+    $("#college-table").addEventListener("click", onCollegeSort);
 
     // Profile / compare controls
     $("#prof-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
@@ -248,11 +292,17 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
+  function fillSelectGrouped(el, stats, order, groupOf, sel) {
+    const by = {};
+    stats.forEach((s) => { (by[groupOf(s.k)] = by[groupOf(s.k)] || []).push(s); });
+    el.innerHTML = order.filter((g) => by[g]).map((g) => `<optgroup label="${g}">${by[g].map((s) => `<option value="${s.k}">${s.l}</option>`).join("")}</optgroup>`).join("");
+    el.value = sel;
+  }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -284,6 +334,11 @@
     if (state.field[state.season]) return state.field[state.season];
     try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = f.players; return f.players; }
     catch (e) { state.field[state.season] = {}; return {}; }
+  }
+  async function ensureCollege() {
+    if (state.college[state.season]) return state.college[state.season];
+    try { const c = await (await fetch(`./data/college_${state.season}.json`)).json(); state.college[state.season] = c.players; return c.players; }
+    catch (e) { state.college[state.season] = null; return null; }
   }
   function renderAll() { renderTeams(); renderPlayers(); renderStandings(); renderScores(); renderTrends(); }
 
@@ -465,6 +520,58 @@
   }
   function renderTrends() { trendPd("trend-pd", state.team, `nfl-${state.team}-pointdiff-${state.season}`); trendEpa("trend-epa", state.team, `nfl-${state.team}-epa-${state.season}`); }
 
+  // ---- College ------------------------------------------------------------
+  function fillCollegeRank(cat, sel) {
+    const el = $("#college-rank");
+    el.innerHTML = COLLEGE_CAT[cat].stats.map((k) => `<option value="${k}">${CSTAT[k].l}</option>`).join("");
+    el.value = COLLEGE_CAT[cat].stats.includes(sel) ? sel : COLLEGE_CAT[cat].rank;
+  }
+  async function renderCollege() {
+    const hint = $("#college-hint");
+    const players = await ensureCollege();
+    if (!players) { hint.textContent = `No college data for ${state.season}.`; $("#college-chart").innerHTML = ""; $("#college-table").innerHTML = ""; if (charts["college-chart"]) charts["college-chart"].clear(); return; }
+    // conference options (once per season set)
+    const conf = $("#college-conf");
+    const confs = Array.from(new Set(players.map((p) => p.conf).filter(Boolean))).sort();
+    if (conf.options.length !== confs.length + 1) {
+      conf.innerHTML = `<option value="">All conferences</option>` + confs.map((c) => `<option value="${c}">${c}</option>`).join("");
+      conf.value = state.collegeConf;
+    }
+    const cat = COLLEGE_CAT[state.collegeCat];
+    let list = players.filter(cat.filter);
+    if (state.collegeConf) list = list.filter((p) => p.conf === state.collegeConf);
+    if (state.collegeFilter) list = list.filter((p) => p.player.toLowerCase().includes(state.collegeFilter));
+    hint.textContent = `${list.length} FBS/FCS players · ${state.season} · ranked by ${CSTAT[state.collegeRank].l} · touchdowns omitted (source data inconsistent)`;
+
+    const rs = CSTAT[state.collegeRank];
+    const barRows = list.map((p) => ({ p, v: pval(p, rs) })).filter((r) => r.v != null).sort((a, b) => rs.hi ? b.v - a.v : a.v - b.v).slice(0, 15).reverse();
+    ec("college-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`college-${state.collegeCat}-${rs.k}-${state.season}`),
+      grid: { left: 150, right: 50, top: 26, bottom: 20 },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => `${ps[0].name}<br/>${rs.l}: ${pfmt(ps[0].value, rs)}` },
+      xAxis: { ...axisCommon(), type: "value" },
+      yAxis: { type: "category", data: barRows.map((r) => r.p.player), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 11 } },
+      series: [{ type: "bar", data: barRows.map((r) => r.v), itemStyle: { color: "#4da3ff", borderRadius: [0, 4, 4, 0] }, label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, rs) }, barMaxWidth: 22 }],
+    }, true);
+
+    // table
+    const cols = COLLEGE_CAT[state.collegeCat].stats.map((k) => CSTAT[k]);
+    const sort = state.collegeSort || { key: state.collegeRank, dir: rs.hi ? -1 : 1 };
+    const ss = CSTAT[sort.key];
+    const sorted = list.map((p) => ({ p, v: pval(p, ss) })).filter((r) => r.v != null).sort((a, b) => (a.v - b.v) * sort.dir);
+    const arrow = (k) => sort.key === k ? `<span class="sort-arrow">${sort.dir < 0 ? "▾" : "▴"}</span>` : "";
+    const th = (l, k) => `<th class="sortable" data-k="${k}">${l} ${arrow(k)}</th>`;
+    const head = `<thead><tr><th class="rank">#</th><th>Player</th><th>Team</th><th>Conf</th>${cols.map((c) => th(c.l, c.k)).join("")}${th("G", "games")}</tr></thead>`;
+    const body = sorted.slice(0, 200).map((r, i) => `<tr><td class="rank">${i + 1}</td><td class="pname">${r.p.player}</td><td class="pteam">${r.p.team || ""}</td><td class="pteam">${r.p.conf || ""}</td>${cols.map((c) => `<td>${pfmt(pval(r.p, c), c)}</td>`).join("")}<td>${r.p.games ?? ""}</td></tr>`).join("");
+    $("#college-table").innerHTML = head + `<tbody>${body}</tbody>`;
+  }
+  function onCollegeSort(e) {
+    const th = e.target.closest("th.sortable"); if (!th) return;
+    const k = th.dataset.k, s = CSTAT[k], cur = state.collegeSort;
+    state.collegeSort = (cur && cur.key === k) ? { key: k, dir: -cur.dir } : { key: k, dir: s.hi ? -1 : 1 };
+    renderCollege();
+  }
+
   // ---- Search -------------------------------------------------------------
   function buildSearchIndex() {
     const idx = {}, opts = [];
@@ -492,6 +599,13 @@
     TE: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "target_share", "catch_pct", "fppg"],
   };
   const PROFILE_TEAM = ["off_epa", "def_epa", "net_epa", "ppg", "papg", "pd", "ypp", "first_downs"];
+  // Compare radars blend core production with Next Gen Stats.
+  const COMPARE_PLAYER = {
+    QB: ["passing_yards", "passing_tds", "passing_epa", "cmp_pct", "ypa", "ngs_cpoe", "ngs_agg", "ngs_ttt", "ngs_rating"],
+    RB: ["rushing_yards", "rushing_tds", "ypc", "rushing_epa", "yds_scrim", "ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_stacked"],
+    WR: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare"],
+    TE: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare"],
+  };
   const PROFILE_ADV = {
     QB: ["snap_pct", "ngs_cpoe", "ngs_ttt", "ngs_agg", "ngs_ayts", "ngs_rating"],
     RB: ["snap_pct", "ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked"],
@@ -675,7 +789,7 @@
       const optHtml = pool.map((x) => `<option value="${x.id || x.player}">${x.player}</option>`).join("");
       $("#cmp-a").innerHTML = optHtml; $("#cmp-a").value = pA ? (pA.id || pA.player) : "";
       $("#cmp-b").innerHTML = optHtml; $("#cmp-b").value = pB ? (pB.id || pB.player) : "";
-      const keys = PROFILE_PLAYER[bk] || PROFILE_PLAYER.WR;
+      const keys = COMPARE_PLAYER[bk] || COMPARE_PLAYER.WR;
       const peers = state.data.players.filter((x) => bucket(x.pos) === bk && qualified(x));
       compareRender(keys.map((k) => PSTAT[k]), pA, pB, null, { name: pA ? pA.player : "—", color: pA ? color(pA.team) : "#888" }, { name: pB ? pB.player : "—", color: pB ? color(pB.team) : "#888" }, (s, e) => e ? rankPct(peers.map((x) => pval(x, s)), pval(e, s), s.hi) : null);
     }
