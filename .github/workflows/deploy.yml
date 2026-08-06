@@ -44,3 +44,5 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 900000   # 15 min — tolerate a slow Pages deploy queue
