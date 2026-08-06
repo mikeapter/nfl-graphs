@@ -168,6 +168,10 @@ select {
 }
 .cfilter:focus { outline: none; border-color: var(--accent); }
 .cfilter::placeholder { color: var(--muted); }
+.ct-cell { display: flex; align-items: center; gap: 6px; }
+.ct-logo { width: 18px; height: 18px; object-fit: contain; flex: 0 0 auto; }
+#college-table tbody tr { cursor: pointer; }
+#college-table .pname .pteam { margin-left: 4px; font-size: 11px; }
 
 .tabs {
   max-width: var(--maxw); margin: 8px auto 0; padding: 0 12px;

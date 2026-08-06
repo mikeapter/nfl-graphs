@@ -149,7 +149,17 @@
             <button class="seg" data-cat="Rushing">Rushing</button>
             <button class="seg" data-cat="Receiving">Receiving</button>
           </div>
-          <label class="ctl"><span>Conference</span><select id="college-conf"></select></label>
+          <div class="segmented" id="college-class">
+            <button class="seg active" data-cls="FBS">FBS</button>
+            <button class="seg" data-cls="FCS">FCS</button>
+            <button class="seg" data-cls="All">All</button>
+          </div>
+          <div class="segmented" id="college-scope">
+            <button class="seg active" data-scope="National">National</button>
+            <button class="seg" data-scope="Conference">Conference</button>
+            <button class="seg" data-scope="Both">Both</button>
+          </div>
+          <label class="ctl" id="college-conf-ctl" hidden><span>Conference</span><select id="college-conf"></select></label>
           <label class="ctl"><span>Rank by</span><select id="college-rank"></select></label>
           <input id="college-filter" class="cfilter" placeholder="Filter by name…" autocomplete="off" />
         </div>

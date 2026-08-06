@@ -218,74 +218,128 @@ def enrich_advanced(players_list, season, xwalk):
             p["snap_pct"] = snap_pct[gid]
 
 
-CFB_URL = "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main/player_stats/parquet"
+CFB_URL = "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main"
+_cfb_id = lambda v: str(int(v)) if pd.notna(v) else None
 
 
 def load_cfb(season: int):
-    p = fetch(f"{CFB_URL}/player_stats_{season}.parquet", CACHE_DIR / f"cfb_{season}.parquet")
+    p = fetch(f"{CFB_URL}/player_stats/parquet/player_stats_{season}.parquet", CACHE_DIR / f"cfb_{season}.parquet")
     if not p:
         return None
-    cols = ["game_id", "team", "conference",
-            "completion_player_id", "completion_player", "completion_yds",
+    cols = ["game_id", "team", "completion_player_id", "completion_player", "completion_yds",
             "incompletion_player_id", "interception_thrown_player_id",
             "rush_player_id", "rush_player", "rush_yds",
-            "reception_player_id", "reception_player", "reception_yds", "target_player_id"]
+            "reception_player_id", "reception_player", "reception_yds", "target_player_id",
+            "touchdown_player_id"]
     return pd.read_parquet(p, columns=cols)
 
 
-def build_college(df) -> list[dict]:
-    """Aggregate cfbfastR play rows into per-player season totals (no TDs — the
-    source's TD columns are inconsistent). Reliable: yards, cmp/att, int, car,
-    rec, tgt, games."""
+def load_cfb_rosters(season: int):
+    p = fetch(f"{CFB_URL}/rosters/parquet/cfb_rosters_{season}.parquet", CACHE_DIR / f"cfb_rosters_{season}.parquet")
+    if not p:
+        return {}, {}
+    r = pd.read_parquet(p)
+    pos = {str(a): p2 for a, p2 in zip(r["athlete_id"], r["position"]) if pd.notna(a) and isinstance(p2, str)}
+    face = {str(a): h for a, h in zip(r["athlete_id"], r.get("headshot_url", pd.Series([None] * len(r)))) if pd.notna(a) and isinstance(h, str) and h}
+    return pos, face
+
+
+def load_cfb_teaminfo(season: int) -> dict:
+    """school -> {logo, color, conf, class, abbr}."""
+    p = fetch(f"{CFB_URL}/team_info/parquet/cfb_team_info_{season}.parquet", CACHE_DIR / f"cfb_teaminfo_{season}.parquet")
+    if not p:
+        return {}
+    ti = pd.read_parquet(p)
+    out = {}
+    for r in ti.itertuples(index=False):
+        if not isinstance(r.school, str):
+            continue
+        out[r.school] = {
+            "logo": f"https://a.espncdn.com/i/teamlogos/ncaa/500/{int(r.team_id)}.png" if pd.notna(r.team_id) else None,
+            "color": r.color if isinstance(r.color, str) and r.color.startswith("#") else "#4da3ff",
+            "conf": r.conference if isinstance(r.conference, str) else "",
+            "class": (r.classification or "").upper() if isinstance(r.classification, str) else "",
+            "abbr": r.abbreviation if isinstance(r.abbreviation, str) else r.school,
+        }
+    return out
+
+
+def build_college(df, season: int):
+    """Aggregate cfbfastR play rows into per-player season totals. TDs are
+    reconstructed using roster positions (the QB is the passer; the other player
+    on a pass-TD play is the scorer), which fixes the source's swapped columns."""
     from collections import defaultdict
-    acc = defaultdict(lambda: {"team": None, "conf": None, "cmp": 0, "att": 0, "pyd": 0.0,
-                               "int": 0, "car": 0, "ryd": 0.0, "rec": 0, "tgt": 0, "recyd": 0.0, "g": set()})
+    pos_map, face_map = load_cfb_rosters(season)
+    teaminfo = load_cfb_teaminfo(season)
+    acc = defaultdict(lambda: {"team": None, "cmp": 0, "att": 0, "pyd": 0.0, "int": 0,
+                               "ptd": 0, "car": 0, "ryd": 0.0, "rtd": 0, "rec": 0, "tgt": 0,
+                               "recyd": 0.0, "rectd": 0, "g": set()})
     names = {}
-    def setmeta(pid, team, conf, gid):
+    def setmeta(pid, team, gid):
         a = acc[pid]
         if a["team"] is None:
-            a["team"] = team; a["conf"] = conf
+            a["team"] = team
         a["g"].add(gid)
 
     for r in df.itertuples(index=False):
-        gid = r.game_id
-        if pd.notna(r.completion_player_id):
-            setmeta(r.completion_player_id, r.team, r.conference, gid); a = acc[r.completion_player_id]
-            a["cmp"] += 1; a["att"] += 1
+        gid, team = r.game_id, r.team
+        cp, rp2, ru = _cfb_id(r.completion_player_id), _cfb_id(r.reception_player_id), _cfb_id(r.rush_player_id)
+        if cp:
+            setmeta(cp, team, gid); a = acc[cp]; a["cmp"] += 1; a["att"] += 1
             if pd.notna(r.completion_yds): a["pyd"] += r.completion_yds
-            if isinstance(r.completion_player, str): names.setdefault(r.completion_player_id, r.completion_player)
+            if isinstance(r.completion_player, str): names.setdefault(cp, r.completion_player)
         if pd.notna(r.incompletion_player_id):
-            setmeta(r.incompletion_player_id, r.team, r.conference, gid); acc[r.incompletion_player_id]["att"] += 1
+            setmeta(_cfb_id(r.incompletion_player_id), team, gid); acc[_cfb_id(r.incompletion_player_id)]["att"] += 1
         if pd.notna(r.interception_thrown_player_id):
-            setmeta(r.interception_thrown_player_id, r.team, r.conference, gid); acc[r.interception_thrown_player_id]["int"] += 1
-        if pd.notna(r.rush_player_id):
-            setmeta(r.rush_player_id, r.team, r.conference, gid); a = acc[r.rush_player_id]
-            a["car"] += 1
+            setmeta(_cfb_id(r.interception_thrown_player_id), team, gid); acc[_cfb_id(r.interception_thrown_player_id)]["int"] += 1
+        if ru:
+            setmeta(ru, team, gid); a = acc[ru]; a["car"] += 1
             if pd.notna(r.rush_yds): a["ryd"] += r.rush_yds
-            if isinstance(r.rush_player, str): names.setdefault(r.rush_player_id, r.rush_player)
-        if pd.notna(r.reception_player_id):
-            setmeta(r.reception_player_id, r.team, r.conference, gid); a = acc[r.reception_player_id]
-            a["rec"] += 1
+            if isinstance(r.rush_player, str): names.setdefault(ru, r.rush_player)
+        if rp2:
+            setmeta(rp2, team, gid); a = acc[rp2]; a["rec"] += 1
             if pd.notna(r.reception_yds): a["recyd"] += r.reception_yds
-            if isinstance(r.reception_player, str): names.setdefault(r.reception_player_id, r.reception_player)
+            if isinstance(r.reception_player, str): names.setdefault(rp2, r.reception_player)
         if pd.notna(r.target_player_id):
-            setmeta(r.target_player_id, r.team, r.conference, gid); acc[r.target_player_id]["tgt"] += 1
+            setmeta(_cfb_id(r.target_player_id), team, gid); acc[_cfb_id(r.target_player_id)]["tgt"] += 1
+        # touchdowns (position-disambiguated)
+        td = _cfb_id(r.touchdown_player_id)
+        if td:
+            if ru and ru == td:
+                acc[ru]["rtd"] += 1
+            else:
+                inv = [x for x in dict.fromkeys([cp, rp2]) if x]
+                if len(inv) == 2:
+                    qbs = [x for x in inv if pos_map.get(x) == "QB"]
+                    if len(qbs) == 1:
+                        passer = qbs[0]; receiver = next(x for x in inv if x != passer)
+                    elif td in inv:
+                        receiver = td; passer = next(x for x in inv if x != td)
+                    else:
+                        passer, receiver = inv[0], inv[1]
+                    acc[passer]["ptd"] += 1; acc[receiver]["rectd"] += 1
 
-    out = []
+    teams_used, out = {}, []
     for pid, a in acc.items():
         if not (a["att"] >= 30 or a["car"] >= 25 or a["tgt"] >= 15):
             continue
-        role = "QB" if a["att"] >= 50 else "RB" if (a["car"] >= a["rec"] and a["car"] >= 20) else "WR"
-        row = {"id": str(pid), "player": names.get(pid, str(pid)), "team": a["team"],
-               "conf": a["conf"], "pos": role, "games": len(a["g"])}
-        for k, key in [("cmp", "cmp"), ("att", "att"), ("int", "int"), ("car", "car"), ("rec", "rec"), ("tgt", "tgt")]:
-            if a[key]:
-                row[k] = a[key]
-        for k, key in [("pyd", "pyd"), ("ryd", "ryd"), ("recyd", "recyd")]:
-            if a[key]:
-                row[k] = int(round(a[key]))
+        rp = pos_map.get(pid)
+        pos = rp if rp in ("QB", "RB", "FB", "WR", "TE") else ("QB" if a["att"] >= 50 else "RB" if (a["car"] >= a["rec"] and a["car"] >= 20) else "WR")
+        ti = teaminfo.get(a["team"], {})
+        row = {"id": pid, "player": names.get(pid, pid), "team": a["team"], "pos": pos,
+               "conf": ti.get("conf", ""), "class": ti.get("class", ""), "games": len(a["g"])}
+        if pid in face_map:
+            row["face"] = face_map[pid]
+        for k in ("cmp", "att", "int", "ptd", "car", "rtd", "rec", "tgt", "rectd"):
+            if a[k]:
+                row[k] = a[k]
+        for k in ("pyd", "ryd", "recyd"):
+            if a[k]:
+                row[k] = int(round(a[k]))
         out.append(row)
-    return out
+        if a["team"] and ti:
+            teams_used[a["team"]] = ti
+    return out, teams_used
 
 
 def build_field(pbp: pd.DataFrame, ids: set) -> dict:
@@ -606,10 +660,10 @@ def main():
         try:
             cfb = load_cfb(season)
             if cfb is not None and len(cfb):
-                college = build_college(cfb)
+                college, cteams = build_college(cfb, season)
                 cf = DATA_DIR / f"college_{season}.json"
-                cf.write_text(json.dumps({"season": season, "players": college}, separators=(",", ":")), encoding="utf-8")
-                print(f"  wrote {cf.name}  ({cf.stat().st_size // 1024} KB, {len(college)} players)")
+                cf.write_text(json.dumps({"season": season, "players": college, "teams": cteams}, separators=(",", ":")), encoding="utf-8")
+                print(f"  wrote {cf.name}  ({cf.stat().st_size // 1024} KB, {len(college)} players, {len(cteams)} teams)")
                 college_built.append(season)
         except Exception as e:  # noqa: BLE001
             print(f"  !! college skipped: {e}")

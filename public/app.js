@@ -24,6 +24,7 @@
     team: null, focus: null, searchIndex: {}, prevTab: "teams", profileEntity: null, logStat: "py",
     field: {}, fieldMap: null,
     college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
+    collegeScope: "National", collegeClass: "FBS",
   };
   const charts = {};
 
@@ -156,22 +157,23 @@
 
   // College stat catalog (reliable cfbfastR aggregates — no TDs in the source)
   const CSTAT = {
-    pyd: { k: "pyd", l: "Passing yards", hi: true }, cmp: { k: "cmp", l: "Completions", hi: true },
-    att: { k: "att", l: "Pass attempts", hi: true }, int: { k: "int", l: "Interceptions", hi: false },
+    pyd: { k: "pyd", l: "Passing yards", hi: true }, ptd: { k: "ptd", l: "Passing TDs", hi: true },
+    cmp: { k: "cmp", l: "Completions", hi: true }, att: { k: "att", l: "Pass attempts", hi: true },
+    int: { k: "int", l: "Interceptions", hi: false },
     cmp_pct: { k: "cmp_pct", l: "Completion %", hi: true, d: 1, fn: (p) => p.att ? 100 * (p.cmp || 0) / p.att : null },
     ypa: { k: "ypa", l: "Yards / attempt", hi: true, d: 2, fn: (p) => p.att ? (p.pyd || 0) / p.att : null },
-    car: { k: "car", l: "Carries", hi: true }, ryd: { k: "ryd", l: "Rushing yards", hi: true },
+    car: { k: "car", l: "Carries", hi: true }, ryd: { k: "ryd", l: "Rushing yards", hi: true }, rtd: { k: "rtd", l: "Rushing TDs", hi: true },
     ypc: { k: "ypc", l: "Yards / carry", hi: true, d: 2, fn: (p) => p.car ? (p.ryd || 0) / p.car : null },
     rec: { k: "rec", l: "Receptions", hi: true }, tgt: { k: "tgt", l: "Targets", hi: true },
-    recyd: { k: "recyd", l: "Receiving yards", hi: true },
+    recyd: { k: "recyd", l: "Receiving yards", hi: true }, rectd: { k: "rectd", l: "Receiving TDs", hi: true },
     ypr: { k: "ypr", l: "Yards / reception", hi: true, d: 2, fn: (p) => p.rec ? (p.recyd || 0) / p.rec : null },
     catch_pct: { k: "catch_pct", l: "Catch %", hi: true, d: 1, fn: (p) => p.tgt ? 100 * (p.rec || 0) / p.tgt : null },
     games: { k: "games", l: "Games", hi: true },
   };
   const COLLEGE_CAT = {
-    Passing: { filter: (p) => (p.att || 0) >= 50, rank: "pyd", stats: ["pyd", "cmp", "att", "cmp_pct", "ypa", "int"] },
-    Rushing: { filter: (p) => (p.car || 0) >= 25, rank: "ryd", stats: ["ryd", "car", "ypc"] },
-    Receiving: { filter: (p) => (p.rec || 0) >= 15 || (p.tgt || 0) >= 15, rank: "recyd", stats: ["recyd", "rec", "tgt", "ypr", "catch_pct"] },
+    Passing: { filter: (p) => (p.att || 0) >= 50, rank: "pyd", stats: ["pyd", "ptd", "cmp", "att", "cmp_pct", "ypa", "int"] },
+    Rushing: { filter: (p) => (p.car || 0) >= 25, rank: "ryd", stats: ["ryd", "rtd", "car", "ypc"] },
+    Receiving: { filter: (p) => (p.rec || 0) >= 15 || (p.tgt || 0) >= 15, rank: "recyd", stats: ["recyd", "rectd", "rec", "tgt", "ypr", "catch_pct"] },
   };
 
   const pval = (e, stat) => { const v = stat.fn ? stat.fn(e) : e[stat.k]; return v == null || (typeof v === "number" && isNaN(v)) ? null : v; };
@@ -239,10 +241,12 @@
     // College builder
     fillCollegeRank(state.collegeCat, state.collegeRank);
     segmented("#college-cat", (v) => { state.collegeCat = v; state.collegeRank = COLLEGE_CAT[v].rank; state.collegeSort = null; fillCollegeRank(v, state.collegeRank); renderCollege(); });
+    segmented("#college-class", (v) => { state.collegeClass = v; renderCollege(); });
+    segmented("#college-scope", (v) => { state.collegeScope = v; $("#college-conf-ctl").hidden = v !== "Conference"; renderCollege(); });
     $("#college-conf").addEventListener("change", (e) => { state.collegeConf = e.target.value; renderCollege(); });
     $("#college-rank").addEventListener("change", (e) => { state.collegeRank = e.target.value; state.collegeSort = null; renderCollege(); });
     $("#college-filter").addEventListener("input", (e) => { state.collegeFilter = e.target.value.toLowerCase(); renderCollege(); });
-    $("#college-table").addEventListener("click", onCollegeSort);
+    $("#college-table").addEventListener("click", onCollegeTableClick);
 
     // Profile / compare controls
     $("#prof-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
@@ -271,6 +275,7 @@
     const seg = path.split("/").filter(Boolean).map(decodeURIComponent);
     const season = s ? +s : null;
     if (seg[0] === "player") return { view: "player", id: seg[1], season };
+    if (seg[0] === "cplayer") return { view: "cplayer", id: seg[1], season };
     if (seg[0] === "team") return { view: "team", id: seg[1], season };
     if (seg[0] === "compare") return { view: "compare", ctype: seg[1], a: seg[2], b: seg[3], season };
     return { view: seg[0] || "teams", season };
@@ -281,6 +286,7 @@
     if (want !== state.season) await loadSeasonData(want);
     $("#season-select").value = state.season;
     if (r.view === "player") return showPlayerPage(r.id);
+    if (r.view === "cplayer") return showCollegePlayerPage(r.id);
     if (r.view === "team") return showTeamPage(r.id);
     if (r.view === "compare") return showComparePage(r.ctype, r.a, r.b);
     state.profileEntity = null;
@@ -302,7 +308,7 @@
     el.value = sel;
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -337,8 +343,20 @@
   }
   async function ensureCollege() {
     if (state.college[state.season]) return state.college[state.season];
-    try { const c = await (await fetch(`./data/college_${state.season}.json`)).json(); state.college[state.season] = c.players; return c.players; }
+    try { const c = await (await fetch(`./data/college_${state.season}.json`)).json(); state.college[state.season] = { players: c.players, teams: c.teams || {} }; return state.college[state.season]; }
     catch (e) { state.college[state.season] = null; return null; }
+  }
+  const cteam = (school) => { const t = state.college[state.season]; return (t && t.teams && t.teams[school]) || { logo: "", color: "#4da3ff", conf: "", abbr: school }; };
+  const findCollege = (id) => { const c = state.college[state.season]; return c && c.players.find((p) => p.id === id); };
+  let _nflNames = null;
+  async function nflNameMap() {
+    // Name -> NFL player from the LATEST NFL season (for college->NFL links).
+    if (_nflNames) return _nflNames;
+    try {
+      const d = (state.season === state.meta.latest && state.data) ? state.data : await (await fetch(`./data/season_${state.meta.latest}.json`)).json();
+      _nflNames = {}; d.players.forEach((p) => { _nflNames[p.player] = p; });
+    } catch (e) { _nflNames = {}; }
+    return _nflNames;
   }
   function renderAll() { renderTeams(); renderPlayers(); renderStandings(); renderScores(); renderTrends(); }
 
@@ -350,6 +368,7 @@
   const CLICK_ROUTERS = {
     "team-chart-el": (p) => { const n = p.name || (p.data && p.data.name); if (n && state.meta.teams[n]) go(`#/team/${n}${seasonSuffix()}`); },
     "player-chart-el": (p) => { const n = (p.data && p.data.pl) || (p.seriesType === "bar" ? p.name : null); if (n) { const pl = findPlayer(n); if (pl) go(`#/player/${encodeURIComponent(pl.id || pl.player)}${seasonSuffix()}`); } },
+    "college-chart": (p) => { const c = state.college[state.season]; const pl = c && c.players.find((x) => x.player === p.name); if (pl) go(`#/cplayer/${encodeURIComponent(pl.id)}${seasonSuffix()}`); },
   };
   function ec(id) {
     if (!charts[id]) {
@@ -528,48 +547,91 @@
   }
   async function renderCollege() {
     const hint = $("#college-hint");
-    const players = await ensureCollege();
-    if (!players) { hint.textContent = `No college data for ${state.season}.`; $("#college-chart").innerHTML = ""; $("#college-table").innerHTML = ""; if (charts["college-chart"]) charts["college-chart"].clear(); return; }
-    // conference options (once per season set)
+    const data = await ensureCollege();
+    if (!data) { hint.textContent = `No college data for ${state.season}.`; $("#college-table").innerHTML = ""; if (charts["college-chart"]) charts["college-chart"].clear(); return; }
+    const players = data.players;
     const conf = $("#college-conf");
     const confs = Array.from(new Set(players.map((p) => p.conf).filter(Boolean))).sort();
-    if (conf.options.length !== confs.length + 1) {
-      conf.innerHTML = `<option value="">All conferences</option>` + confs.map((c) => `<option value="${c}">${c}</option>`).join("");
-      conf.value = state.collegeConf;
-    }
-    const cat = COLLEGE_CAT[state.collegeCat];
-    let list = players.filter(cat.filter);
-    if (state.collegeConf) list = list.filter((p) => p.conf === state.collegeConf);
-    if (state.collegeFilter) list = list.filter((p) => p.player.toLowerCase().includes(state.collegeFilter));
-    hint.textContent = `${list.length} FBS/FCS players · ${state.season} · ranked by ${CSTAT[state.collegeRank].l} · touchdowns omitted (source data inconsistent)`;
+    if (conf.options.length !== confs.length + 1) { conf.innerHTML = `<option value="">All conferences</option>` + confs.map((c) => `<option value="${c}">${c}</option>`).join(""); conf.value = state.collegeConf || confs[0] || ""; state.collegeConf = conf.value; }
 
-    const rs = CSTAT[state.collegeRank];
-    const barRows = list.map((p) => ({ p, v: pval(p, rs) })).filter((r) => r.v != null).sort((a, b) => rs.hi ? b.v - a.v : a.v - b.v).slice(0, 15).reverse();
+    const cat = COLLEGE_CAT[state.collegeCat], rs = CSTAT[state.collegeRank];
+    let list = players.filter(cat.filter);
+    if (state.collegeClass !== "All") list = list.filter((p) => p.class === state.collegeClass);
+    const scope = state.collegeScope;
+    if (scope === "Conference" && state.collegeConf) list = list.filter((p) => p.conf === state.collegeConf);
+    let shown = list;
+    if (state.collegeFilter) shown = shown.filter((p) => p.player.toLowerCase().includes(state.collegeFilter));
+
+    const scopeTxt = scope === "Conference" ? state.collegeConf : scope === "Both" ? "national + conference rank" : `${state.collegeClass === "All" ? "all divisions" : state.collegeClass}`;
+    hint.textContent = `${shown.length} players · ${state.season} · ${scopeTxt} · ranked by ${rs.l} · click a player for their profile`;
+
+    // conference rank map for "Both"
+    let confRank = null;
+    if (scope === "Both") {
+      confRank = {};
+      const byC = {};
+      list.forEach((p) => { (byC[p.conf] = byC[p.conf] || []).push(p); });
+      Object.values(byC).forEach((arr) => { arr.slice().map((p) => ({ p, v: pval(p, rs) })).filter((r) => r.v != null).sort((a, b) => rs.hi ? b.v - a.v : a.v - b.v).forEach((r, i) => { confRank[r.p.id] = i + 1; }); });
+    }
+
+    const barRows = shown.map((p) => ({ p, v: pval(p, rs) })).filter((r) => r.v != null).sort((a, b) => rs.hi ? b.v - a.v : a.v - b.v).slice(0, 15).reverse();
     ec("college-chart").setOption({
       backgroundColor: "transparent", ...chartExtras(`college-${state.collegeCat}-${rs.k}-${state.season}`),
-      grid: { left: 150, right: 50, top: 26, bottom: 20 },
+      grid: { left: 150, right: 54, top: 26, bottom: 20 },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => `${ps[0].name}<br/>${rs.l}: ${pfmt(ps[0].value, rs)}` },
       xAxis: { ...axisCommon(), type: "value" },
       yAxis: { type: "category", data: barRows.map((r) => r.p.player), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 11 } },
-      series: [{ type: "bar", data: barRows.map((r) => r.v), itemStyle: { color: "#4da3ff", borderRadius: [0, 4, 4, 0] }, label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, rs) }, barMaxWidth: 22 }],
+      series: [{ type: "bar", data: barRows.map((r) => ({ value: r.v, itemStyle: { color: cteam(r.p.team).color, borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, rs) }, barMaxWidth: 22 }],
     }, true);
 
-    // table
-    const cols = COLLEGE_CAT[state.collegeCat].stats.map((k) => CSTAT[k]);
+    const cols = cat.stats.map((k) => CSTAT[k]);
     const sort = state.collegeSort || { key: state.collegeRank, dir: rs.hi ? -1 : 1 };
     const ss = CSTAT[sort.key];
-    const sorted = list.map((p) => ({ p, v: pval(p, ss) })).filter((r) => r.v != null).sort((a, b) => (a.v - b.v) * sort.dir);
+    const sorted = shown.map((p) => ({ p, v: pval(p, ss) })).filter((r) => r.v != null).sort((a, b) => (a.v - b.v) * sort.dir);
     const arrow = (k) => sort.key === k ? `<span class="sort-arrow">${sort.dir < 0 ? "▾" : "▴"}</span>` : "";
     const th = (l, k) => `<th class="sortable" data-k="${k}">${l} ${arrow(k)}</th>`;
-    const head = `<thead><tr><th class="rank">#</th><th>Player</th><th>Team</th><th>Conf</th>${cols.map((c) => th(c.l, c.k)).join("")}${th("G", "games")}</tr></thead>`;
-    const body = sorted.slice(0, 200).map((r, i) => `<tr><td class="rank">${i + 1}</td><td class="pname">${r.p.player}</td><td class="pteam">${r.p.team || ""}</td><td class="pteam">${r.p.conf || ""}</td>${cols.map((c) => `<td>${pfmt(pval(r.p, c), c)}</td>`).join("")}<td>${r.p.games ?? ""}</td></tr>`).join("");
+    const confHead = scope === "Both" ? `<th>Conf#</th>` : "";
+    const head = `<thead><tr><th class="rank">#</th><th>Player</th><th>Team</th><th>Conf</th>${confHead}${cols.map((c) => th(c.l, c.k)).join("")}${th("G", "games")}</tr></thead>`;
+    const body = sorted.slice(0, 250).map((r, i) => {
+      const t = cteam(r.p.team), lg = t.logo ? `<img class="ct-logo" src="${t.logo}" alt="" loading="lazy"/>` : "";
+      const cr = scope === "Both" ? `<td>${confRank[r.p.id] || ""}</td>` : "";
+      return `<tr data-id="${r.p.id}"><td class="rank">${i + 1}</td><td class="pname">${r.p.player} <span class="pteam">${r.p.pos || ""}</span></td><td class="pteam ct-cell">${lg}${t.abbr || r.p.team || ""}</td><td class="pteam">${r.p.conf || ""}</td>${cr}${cols.map((c) => `<td>${pfmt(pval(r.p, c), c)}</td>`).join("")}<td>${r.p.games ?? ""}</td></tr>`;
+    }).join("");
     $("#college-table").innerHTML = head + `<tbody>${body}</tbody>`;
   }
-  function onCollegeSort(e) {
-    const th = e.target.closest("th.sortable"); if (!th) return;
-    const k = th.dataset.k, s = CSTAT[k], cur = state.collegeSort;
-    state.collegeSort = (cur && cur.key === k) ? { key: k, dir: -cur.dir } : { key: k, dir: s.hi ? -1 : 1 };
-    renderCollege();
+  function onCollegeTableClick(e) {
+    const th = e.target.closest("th.sortable");
+    if (th) { const k = th.dataset.k, s = CSTAT[k], cur = state.collegeSort; state.collegeSort = (cur && cur.key === k) ? { key: k, dir: -cur.dir } : { key: k, dir: s.hi ? -1 : 1 }; renderCollege(); return; }
+    const tr = e.target.closest("tbody tr"); if (tr && tr.dataset.id) go(`#/cplayer/${encodeURIComponent(tr.dataset.id)}${seasonSuffix()}`);
+  }
+  const CPROFILE = {
+    QB: ["pyd", "ptd", "int", "cmp_pct", "ypa", "games"],
+    RB: ["ryd", "rtd", "ypc", "car", "games"],
+    WR: ["recyd", "rectd", "rec", "ypr", "catch_pct", "games"],
+    TE: ["recyd", "rectd", "rec", "ypr", "catch_pct", "games"],
+  };
+  async function showCollegePlayerPage(id) {
+    await ensureCollege();
+    const p = findCollege(id);
+    state.profileEntity = p ? { type: "cplayer", id } : null;
+    state.prevTab = "college";
+    // college profile reuses the profile view but only the radar chart
+    $("#prof-compare-ctl").hidden = true; $("#prof-save").style.display = "none";
+    $("#prof-log-ctl").style.display = "none"; $("#prof-chart2-wrap").style.display = "none"; $("#prof-field-section").hidden = true;
+    if (!p) { $("#profile-body").innerHTML = `<p class="hint" style="padding:20px">Player not found for ${state.season}.</p>`; $(".prof-grid").style.display = "none"; activate("profile", null); return; }
+    $(".prof-grid").style.display = ""; $("#prof-chart1").style.display = "none";
+    const b = bucket(p.pos), t = cteam(p.team);
+    const peers = state.college[state.season].players.filter((x) => bucket(x.pos) === b);
+    const keys = CPROFILE[b] || CPROFILE.WR;
+    const rows = keys.map((k) => { const s = CSTAT[k]; const v = pval(p, s); return statRow(s.l, pfmt(v, s), v == null ? null : rankPct(peers.map((x) => pval(x, s)), v, s.hi)); }).join("");
+    const face = p.face ? `<img class="headshot" src="${p.face}" alt="" onerror="this.style.visibility='hidden'"/>` : `<div class="headshot"></div>`;
+    const badge = t.logo ? `<img class="logo-badge" src="${t.logo}" alt=""/>` : "";
+    // college -> NFL link (name match against the LATEST NFL season)
+    const nfl = (await nflNameMap())[p.player];
+    const nflLink = nfl ? `<a class="prof-btn" style="display:block;text-align:center;text-decoration:none;margin-top:14px" href="#/player/${encodeURIComponent(nfl.id || nfl.player)}">Now in the NFL — view ${p.player}'s ${state.meta.latest} NFL profile →</a>` : "";
+    $("#profile-body").innerHTML = `<div class="prof-head"><div class="prof-face">${face}${badge}</div><div class="prof-title"><h3>${p.player}</h3><div class="meta">${p.pos || ""} · ${p.team || ""} · ${p.conf || ""} ${p.class ? "· " + p.class : ""} · ${p.games || 0} games · ${state.season} college</div></div></div><div class="prof-section-t">Season stats · rank vs ${b === "QB" ? "QBs" : b === "RB" ? "RBs" : b === "TE" ? "TEs" : "WRs"} (college)</div><div class="stat-rows">${rows}</div>${nflLink}`;
+    activate("profile", null);
+    radarChart("prof-radar", [{ name: p.player, color: t.color, vals: keys.filter((k) => k !== "games").map((k) => Math.round((rankPct(peers.map((x) => pval(x, CSTAT[k])), pval(p, CSTAT[k]), CSTAT[k].hi) || { pct: 0 }).pct * 100)) }], keys.filter((k) => k !== "games").map((k) => CSTAT[k].l), "Percentile vs position (college)");
   }
 
   // ---- Search -------------------------------------------------------------
@@ -619,7 +681,9 @@
   function statRow(label, valTxt, rp) { const pct = rp ? Math.round(rp.pct * 100) : 0; const rk = rp ? `<span class="sr-rank">#${rp.rank}/${rp.n}</span>` : ""; return `<div class="stat-row"><span class="sr-label">${label}</span><span class="sr-bar"><span class="sr-fill" style="width:${pct}%;background:${barColor(rp ? rp.pct : 0)}"></span></span><span class="sr-val">${valTxt} ${rk}</span></div>`; }
   function playerPeers(p) { const b = bucket(p.pos); return state.data.players.filter((x) => bucket(x.pos) === b && (qualified(x) || x.id === p.id)); }
 
+  function resetProfileChrome() { $("#prof-save").style.display = ""; $("#prof-chart1").style.display = ""; $("#prof-compare-ctl").hidden = false; }
   async function showPlayerPage(idOrName) {
+    resetProfileChrome();
     const p = findPlayer(idOrName);
     state.profileEntity = p ? { type: "player", id: p.id || p.player } : null;
     if (!p) { $("#profile-body").innerHTML = '<p class="hint" style="padding:20px">This player isn’t in the ' + state.season + " data.</p>"; $(".prof-grid").style.display = "none"; activate("profile", null); return; }
@@ -735,6 +799,7 @@
   }
 
   function showTeamPage(abbr) {
+    resetProfileChrome();
     const t = state.data.teams.find((x) => x.team === abbr);
     state.profileEntity = t ? { type: "team", id: abbr } : null;
     if (!t) { $("#profile-body").innerHTML = '<p class="hint" style="padding:20px">No data for this team.</p>'; activate("profile", null); return; }
