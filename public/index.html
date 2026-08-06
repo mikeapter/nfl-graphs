@@ -56,6 +56,7 @@
           <label class="ctl" data-role="rank"><span>Rank by</span><select id="team-rank"></select></label>
           <label class="ctl" data-role="set"><span>Stat set</span><select id="team-set"></select></label>
         </div>
+        <div class="chips" id="team-heat-chips" hidden></div>
         <p class="hint" id="team-hint"></p>
       </div>
       <div class="chart-wrap"><div id="team-chart-el" class="chart tall"></div></div>
@@ -84,6 +85,7 @@
           <label class="ctl" data-role="set"><span>Stat set</span><select id="player-set"></select></label>
           <label class="ctl chk"><input type="checkbox" id="player-qual" checked /><span>Qualified only</span></label>
         </div>
+        <div class="chips" id="player-heat-chips" hidden></div>
         <p class="hint" id="player-hint"></p>
       </div>
       <div class="chart-wrap"><div id="player-chart-el" class="chart tall"></div></div>
@@ -120,6 +122,13 @@
     <span>Built by <a href="https://twitter.com/mikeapter" target="_blank" rel="noopener">@mikeapter</a>
       · Data: nflverse · Logos: ESPN · Not affiliated with the NFL</span>
   </footer>
+
+  <div id="profile" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <button class="modal-close" id="profile-close" aria-label="Close">✕</button>
+      <div id="profile-body"></div>
+    </div>
+  </div>
 
   <script src="./vendor/echarts.min.js"></script>
   <script src="./app.js"></script>

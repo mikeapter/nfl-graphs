@@ -232,12 +232,16 @@ def build_players(pdf: pd.DataFrame) -> list[dict]:
             keep = keep | (pdf[col].fillna(0) >= thr)
     out = []
     for _, r in pdf[keep].iterrows():
+        hs = r.get("headshot_url")
         item = {
+            "id": r.get("player_id"),
             "player": r.get("player_display_name") or r.get("player_name"),
             "team": r.get("recent_team"),
             "pos": r.get("position"),
             "grp": r.get("position_group"),
+            "face": hs if isinstance(hs, str) and hs else None,
         }
+        item = {k: v for k, v in item.items() if v is not None}
         for f in PLAYER_FIELDS:
             if f in r:
                 v = _num(r[f])
