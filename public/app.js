@@ -22,6 +22,7 @@
     playerPos: "QB", playerChart: "bar", playerRank: "passing_yards", playerX: "attempts", playerY: "passing_epa", playerSet: "Passing",
     teamHeat: [], playerHeat: [], playerQual: true, playerSort: null,
     team: null, focus: null, searchIndex: {}, prevTab: "teams", profileEntity: null, logStat: "py",
+    field: {}, fieldMap: null,
   };
   const charts = {};
 
@@ -108,12 +109,35 @@
     { k: "fantasy_points_ppr", l: "Fantasy points (PPR)", hi: true, d: 1 },
     { k: "fppg", l: "Fantasy pts/game (PPR)", hi: true, d: 2, fn: (p) => (p.games && p.fantasy_points_ppr != null) ? p.fantasy_points_ppr / p.games : null },
     { k: "games", l: "Games played", hi: true },
+    // Next Gen Stats + snap share
+    { k: "snap_pct", l: "Snap share %", hi: true, d: 1 },
+    { k: "ngs_ttt", l: "Time to throw (s)", hi: false, d: 2 },
+    { k: "ngs_iay", l: "Intended air yards", hi: true, d: 2 },
+    { k: "ngs_agg", l: "Aggressiveness %", hi: true, d: 1 },
+    { k: "ngs_cpoe", l: "Comp % over expected", hi: true, d: 1 },
+    { k: "ngs_ayts", l: "Air yards to sticks", hi: true, d: 2 },
+    { k: "ngs_rating", l: "Passer rating (NGS)", hi: true, d: 1 },
+    { k: "ngs_xcomp", l: "Expected comp %", hi: true, d: 1 },
+    { k: "ngs_sep", l: "Avg separation (yds)", hi: true, d: 2 },
+    { k: "ngs_cush", l: "Avg cushion (yds)", hi: true, d: 2 },
+    { k: "ngs_yacoe", l: "YAC over expected", hi: true, d: 2 },
+    { k: "ngs_airshare", l: "Air-yards share %", hi: true, d: 1 },
+    { k: "ngs_tay", l: "Targeted air yards", hi: true, d: 2 },
+    { k: "ngs_ryoe", l: "Rush yds over expected", hi: true, d: 1 },
+    { k: "ngs_ryoe_att", l: "RYOE / attempt", hi: true, d: 2 },
+    { k: "ngs_eff", l: "Rush efficiency", hi: false, d: 2 },
+    { k: "ngs_ttl", l: "Time to line (s)", hi: false, d: 2 },
+    { k: "ngs_stacked", l: "% vs 8+ defenders", hi: true, d: 1 },
+    { k: "ngs_rpoe", l: "Rush % over expected", hi: true, d: 2 },
   ];
   const PLAYER_SETS = {
     Passing: ["passing_yards", "passing_tds", "passing_epa", "cmp_pct", "ypa", "passing_cpoe"],
     Rushing: ["rushing_yards", "rushing_tds", "rushing_epa", "ypc", "carries", "yds_scrim"],
     Receiving: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "target_share"],
     Fantasy: ["fantasy_points_ppr", "fppg", "total_tds", "yds_scrim", "touches"],
+    "Next Gen · pass": ["ngs_cpoe", "ngs_ttt", "ngs_agg", "ngs_ayts", "ngs_rating", "ngs_xcomp"],
+    "Next Gen · rec": ["ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay", "snap_pct"],
+    "Next Gen · rush": ["ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked", "snap_pct"],
   };
   const TSTAT = Object.fromEntries(TEAM_STATS.map((s) => [s.k, s]));
   const PSTAT = Object.fromEntries(PLAYER_STATS.map((s) => [s.k, s]));
@@ -255,6 +279,11 @@
     if (state.weekly[state.season]) return state.weekly[state.season];
     try { const w = await (await fetch(`./data/weekly_${state.season}.json`)).json(); state.weekly[state.season] = w.players; return w.players; }
     catch (e) { state.weekly[state.season] = {}; return {}; }
+  }
+  async function ensureField() {
+    if (state.field[state.season]) return state.field[state.season];
+    try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = f.players; return f.players; }
+    catch (e) { state.field[state.season] = {}; return {}; }
   }
   function renderAll() { renderTeams(); renderPlayers(); renderStandings(); renderScores(); renderTrends(); }
 
@@ -463,6 +492,12 @@
     TE: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "target_share", "catch_pct", "fppg"],
   };
   const PROFILE_TEAM = ["off_epa", "def_epa", "net_epa", "ppg", "papg", "pd", "ypp", "first_downs"];
+  const PROFILE_ADV = {
+    QB: ["snap_pct", "ngs_cpoe", "ngs_ttt", "ngs_agg", "ngs_ayts", "ngs_rating"],
+    RB: ["snap_pct", "ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked"],
+    WR: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
+    TE: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
+  };
   const GAMELOG = [["Passing yards", "py"], ["Rushing yards", "ry"], ["Receiving yards", "recy"], ["Receptions", "rec"], ["Total TDs", "td"], ["Fantasy PPR", "ppr"]];
 
   function rankPct(values, val, hi) { const arr = values.filter((v) => v != null); const n = arr.length; if (!n) return null; const rank = 1 + arr.filter((v) => hi ? v > val : v < val).length; return { rank, n, pct: n > 1 ? (n - rank) / (n - 1) : 1 }; }
@@ -476,9 +511,13 @@
     if (!p) { $("#profile-body").innerHTML = '<p class="hint" style="padding:20px">This player isn’t in the ' + state.season + " data.</p>"; $(".prof-grid").style.display = "none"; activate("profile", null); return; }
     $(".prof-grid").style.display = "";
     const b = bucket(p.pos), peers = playerPeers(p), keys = PROFILE_PLAYER[b] || PROFILE_PLAYER.WR;
-    const rows = keys.map((k) => { const s = PSTAT[k]; const v = pval(p, s); return statRow(s.l, pfmt(v, s), v == null ? null : rankPct(peers.map((x) => pval(x, s)), v, s.hi)); }).join("");
+    const bar = (k) => { const s = PSTAT[k]; const v = pval(p, s); return statRow(s.l, pfmt(v, s), v == null ? null : rankPct(peers.map((x) => pval(x, s)), v, s.hi)); };
+    const rows = keys.map(bar).join("");
+    const advKeys = PROFILE_ADV[b] || [];
+    const advPresent = advKeys.some((k) => pval(p, PSTAT[k]) != null);
+    const advHtml = advPresent ? `<div class="prof-section-t">Advanced · Next Gen Stats</div><div class="stat-rows">${advKeys.map(bar).join("")}</div>` : "";
     const face = p.face ? `<img class="headshot" src="${p.face}" alt="" onerror="this.style.visibility='hidden'"/>` : `<div class="headshot"></div>`;
-    $("#profile-body").innerHTML = `<div class="prof-head"><div class="prof-face">${face}<img class="logo-badge" src="${logo(p.team)}" alt=""/></div><div class="prof-title"><h3>${p.player}</h3><div class="meta">${p.pos || ""} · ${teamMeta(p.team).name} · ${p.games || 0} games · ${state.season}</div></div></div><div class="prof-section-t">Season stats · rank vs qualified ${b === "QB" ? "QBs" : b === "RB" ? "RBs" : b === "TE" ? "TEs" : "WRs"}</div><div class="stat-rows">${rows}</div>`;
+    $("#profile-body").innerHTML = `<div class="prof-head"><div class="prof-face">${face}<img class="logo-badge" src="${logo(p.team)}" alt=""/></div><div class="prof-title"><h3>${p.player}</h3><div class="meta">${p.pos || ""} · ${teamMeta(p.team).name} · ${p.games || 0} games · ${state.season}</div></div></div><div class="prof-section-t">Season stats · rank vs qualified ${b === "QB" ? "QBs" : b === "RB" ? "RBs" : b === "TE" ? "TEs" : "WRs"}</div><div class="stat-rows">${rows}</div>${advHtml}`;
     // compare-with options: same-bucket players
     const opts = state.data.players.filter((x) => bucket(x.pos) === b && x.player !== p.player).sort((a, c) => a.player.localeCompare(c.player));
     $("#prof-compare").innerHTML = `<option value="">Compare with…</option>` + opts.map((x) => `<option value="${x.id || x.player}">${x.player}</option>`).join("");
@@ -490,6 +529,7 @@
     activate("profile", null);
     radarChart("prof-radar", [{ name: p.player, color: color(p.team), vals: keys.map((k) => Math.round((rankPct(peers.map((x) => pval(x, PSTAT[k])), pval(p, PSTAT[k]), PSTAT[k].hi) || { pct: 0 }).pct * 100)) }], keys.map((k) => PSTAT[k].l), "Percentile vs position");
     await ensureWeekly(); renderGameLog(p);
+    renderField(p);
   }
   function renderGameLog(p) {
     const log = (state.weekly[state.season] || {})[p.id];
@@ -504,6 +544,80 @@
       series: [{ type: "bar", data: vals, itemStyle: { color: color(p.team), borderRadius: [3, 3, 0, 0] }, barMaxWidth: 26, markLine: { silent: true, symbol: "none", data: [{ yAxis: +avg.toFixed(1), name: "avg" }], lineStyle: { color: AXIS, type: "dashed" }, label: { color: AXIS, formatter: "avg " + avg.toFixed(1) } } }],
     }, true);
     if (!log) ec("prof-chart1").setOption({ title: { subtext: "No weekly data", left: "center", top: "middle", subtextStyle: { color: AXIS } } });
+  }
+
+  // ---- Field map (SVG heatmap on a schematic field) -----------------------
+  const hexA = (hex, a) => { const n = hex.replace("#", ""); const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
+  const DEPTHS = ["Behind LOS", "0–9 (short)", "10–19 (mid)", "20+ (deep)"];
+  const DIRS = ["Left", "Middle", "Right"];
+  const RUSH_GAPS = ["LE", "LT", "LG", "MID", "RG", "RT", "RE"];
+
+  async function renderField(p) {
+    const sec = $("#prof-field-section");
+    const fd = (await ensureField())[p.id];
+    if (!fd || !(fd.pass || fd.tgt || fd.rush)) { sec.hidden = true; sec.innerHTML = ""; return; }
+    sec.hidden = false;
+    const b = bucket(p.pos), maps = [];
+    if (fd.pass) maps.push(["Pass locations", "pass"]);
+    if (fd.tgt) maps.push(["Target map", "tgt"]);
+    if (fd.rush) maps.push(["Rush gaps", "rush"]);
+    let def = b === "QB" ? "pass" : b === "RB" ? "rush" : "tgt";
+    if (!maps.find((m) => m[1] === def)) def = maps[0][1];
+    if (!maps.find((m) => m[1] === state.fieldMap)) state.fieldMap = def;
+    const fm = state.fieldMap, last = p.player.split(" ").slice(-1)[0];
+    const verb = fm === "rush" ? "runs" : fm === "pass" ? "throws" : "is targeted";
+    const toggle = maps.length > 1 ? `<div class="segmented" id="field-toggle">${maps.map(([l, k]) => `<button class="seg ${k === fm ? "active" : ""}" data-fm="${k}">${l}</button>`).join("")}</div>` : "";
+    const svg = fm === "rush" ? rushSVG(fd.rush, color(p.team)) : gridSVG(fd[fm], color(p.team), fm);
+    sec.innerHTML = `<div class="view-head"><div class="fieldbar"><h2>Field map</h2>${toggle}</div><p class="hint">Where ${last} ${verb} · darker = more volume · regular season</p></div><div class="chart-wrap field-holder">${svg}</div>`;
+    sec.querySelectorAll("#field-toggle .seg").forEach((bt) => bt.addEventListener("click", () => { state.fieldMap = bt.dataset.fm; renderField(p); }));
+  }
+
+  function gridSVG(grid, tc, mode) {
+    const W = 360, H = 430, padX = 54, padTop = 16, padBot = 34;
+    const cols = 3, rows = 4, gw = (W - padX - 14) / cols, gh = (H - padTop - padBot) / rows;
+    const maxN = Math.max(1, ...grid.map((c) => c[0]));
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" font-family="-apple-system,Segoe UI,Roboto,sans-serif">`;
+    s += `<rect x="${padX}" y="${padTop}" width="${gw * cols}" height="${gh * rows}" fill="${hexA(tc, 0.04)}" stroke="${LINE}"/>`;
+    for (let d = 0; d < rows; d++) {
+      const rowTop = padTop + (rows - 1 - d) * gh; // deep at top, behind at bottom
+      s += `<text x="${padX - 6}" y="${rowTop + gh / 2 + 3}" text-anchor="end" font-size="9" fill="${AXIS}">${DEPTHS[d].split(" ")[0]}</text>`;
+      for (let dir = 0; dir < cols; dir++) {
+        const cell = grid[dir * 4 + d], n = cell[0], made = cell[1], yds = cell[2];
+        const x = padX + dir * gw, alpha = 0.12 + 0.78 * (n / maxN);
+        s += `<rect x="${x + 1}" y="${rowTop + 1}" width="${gw - 2}" height="${gh - 2}" rx="3" fill="${n ? hexA(tc, alpha) : "transparent"}" stroke="${LINE}" stroke-width="0.5"/>`;
+        if (n) {
+          s += `<text x="${x + gw / 2}" y="${rowTop + gh / 2}" text-anchor="middle" font-size="15" font-weight="700" fill="${TEXT}">${n}</text>`;
+          const sub = mode === "pass" || mode === "tgt" ? `${made}/${n} · ${yds}y` : `${yds}y`;
+          s += `<text x="${x + gw / 2}" y="${rowTop + gh / 2 + 15}" text-anchor="middle" font-size="9" fill="${AXIS}">${sub}</text>`;
+        }
+      }
+    }
+    // LOS line (between behind row and short row)
+    const losY = padTop + (rows - 1) * gh;
+    s += `<line x1="${padX - 4}" y1="${losY}" x2="${padX + gw * cols + 4}" y2="${losY}" stroke="${tc}" stroke-width="2"/>`;
+    s += `<text x="${padX - 8}" y="${losY - 3}" text-anchor="end" font-size="8" fill="${tc}">LOS</text>`;
+    for (let dir = 0; dir < cols; dir++) s += `<text x="${padX + dir * gw + gw / 2}" y="${H - 12}" text-anchor="middle" font-size="10" fill="${AXIS}">${DIRS[dir]}</text>`;
+    return s + "</svg>";
+  }
+
+  function rushSVG(grid, tc) {
+    const W = 360, H = 240, padX = 16, padTop = 40, zw = (W - 2 * padX) / 7, zh = 120;
+    const maxN = Math.max(1, ...grid.map((c) => c[0]));
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" font-family="-apple-system,Segoe UI,Roboto,sans-serif">`;
+    s += `<text x="${W / 2}" y="20" text-anchor="middle" font-size="10" fill="${AXIS}">↑ downfield</text>`;
+    for (let i = 0; i < 7; i++) {
+      const cell = grid[i], n = cell[0], yds = cell[1], x = padX + i * zw, alpha = 0.12 + 0.78 * (n / maxN);
+      s += `<rect x="${x + 1}" y="${padTop + 1}" width="${zw - 2}" height="${zh - 2}" rx="3" fill="${n ? hexA(tc, alpha) : "transparent"}" stroke="${LINE}" stroke-width="0.5"/>`;
+      if (n) {
+        s += `<text x="${x + zw / 2}" y="${padTop + zh / 2 - 2}" text-anchor="middle" font-size="15" font-weight="700" fill="${TEXT}">${n}</text>`;
+        s += `<text x="${x + zw / 2}" y="${padTop + zh / 2 + 15}" text-anchor="middle" font-size="9" fill="${AXIS}">${n ? (yds / n).toFixed(1) : 0}y/c</text>`;
+      }
+      s += `<text x="${x + zw / 2}" y="${padTop + zh + 16}" text-anchor="middle" font-size="10" fill="${AXIS}">${RUSH_GAPS[i]}</text>`;
+    }
+    const losY = padTop + zh;
+    s += `<line x1="${padX - 2}" y1="${losY}" x2="${W - padX + 2}" y2="${losY}" stroke="${tc}" stroke-width="2"/>`;
+    s += `<text x="${padX}" y="${losY + 30}" font-size="9" fill="${tc}">Line of scrimmage · gaps left→right (offense view)</text>`;
+    return s + "</svg>";
   }
 
   function showTeamPage(abbr) {
@@ -524,6 +638,7 @@
     $("#prof-compare").innerHTML = `<option value="">Compare with…</option>` + opts.map((a) => `<option value="${a}">${teamMeta(a).name}</option>`).join("");
     $("#prof-compare-ctl").hidden = false;
     $("#prof-log-ctl").style.display = "none"; $("#prof-chart2-wrap").style.display = "";
+    $("#prof-field-section").hidden = true;
     activate("profile", null);
     radarChart("prof-radar", [{ name: teamMeta(abbr).name, color: color(abbr), vals: PROFILE_TEAM.map((k) => Math.round((rankPct(teams.map((x) => pval(x, TSTAT[k])), pval(t, TSTAT[k]), TSTAT[k].hi) || { pct: 0 }).pct * 100)) }], PROFILE_TEAM.map((k) => TSTAT[k].l), "Percentile vs NFL");
     trendPd("prof-chart1", abbr, `nfl-${abbr}-pointdiff-${state.season}`);

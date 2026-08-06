@@ -153,6 +153,14 @@ select {
 .pp-row .pp-stat { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
 .prof-btn { margin-top: 16px; width: 100%; background: var(--accent); color: var(--on-accent); border: none; border-radius: 11px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; }
 
+/* Field map */
+#prof-field-section { margin-top: 16px; }
+#prof-field-section[hidden] { display: none; }
+.fieldbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fieldbar h2 { margin: 0; }
+.field-holder { display: flex; justify-content: center; padding: 12px; }
+.field-holder svg { max-width: 420px; }
+
 .tabs {
   max-width: var(--maxw); margin: 8px auto 0; padding: 0 12px;
   display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;

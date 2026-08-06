@@ -117,7 +117,10 @@ def load_pbp(season: int) -> pd.DataFrame | None:
     p = fetch(f"{REL}/pbp/play_by_play_{season}.parquet", CACHE_DIR / f"pbp_{season}.parquet")
     if not p:
         return None
-    cols = ["season", "week", "season_type", "posteam", "defteam", "pass", "rush", "epa"]
+    cols = ["season", "week", "season_type", "posteam", "defteam", "pass", "rush", "epa",
+            "pass_attempt", "rush_attempt", "pass_location", "air_yards", "complete_pass",
+            "yards_gained", "run_location", "run_gap",
+            "passer_player_id", "receiver_player_id", "rusher_player_id"]
     return pd.read_parquet(p, columns=cols)
 
 
@@ -140,6 +143,130 @@ def load_player_week(season: int) -> pd.DataFrame | None:
     if not p:
         return None
     return pd.read_csv(p, low_memory=False)
+
+
+def load_ngs(kind: str) -> pd.DataFrame | None:
+    p = fetch(f"{REL}/nextgen_stats/ngs_{kind}.parquet", CACHE_DIR / f"ngs_{kind}.parquet")
+    return pd.read_parquet(p) if p else None
+
+
+def load_snaps(season: int) -> pd.DataFrame | None:
+    p = fetch(f"{REL}/snap_counts/snap_counts_{season}.csv", CACHE_DIR / f"snaps_{season}.csv")
+    return pd.read_csv(p, low_memory=False) if p else None
+
+
+def pfr_to_gsis() -> dict:
+    p = fetch(f"{REL}/players/players.parquet", CACHE_DIR / "players.parquet")
+    if not p:
+        return {}
+    pl = pd.read_parquet(p, columns=["gsis_id", "pfr_id"])
+    pl = pl[pl["gsis_id"].notna() & pl["pfr_id"].notna()]
+    return dict(zip(pl["pfr_id"], pl["gsis_id"]))
+
+
+# Next Gen Stats to expose, per kind: (source column, shipped key)
+NGS_PASSING = [("avg_time_to_throw", "ngs_ttt"), ("avg_intended_air_yards", "ngs_iay"),
+               ("aggressiveness", "ngs_agg"), ("completion_percentage_above_expectation", "ngs_cpoe"),
+               ("avg_air_yards_to_sticks", "ngs_ayts"), ("passer_rating", "ngs_rating"),
+               ("expected_completion_percentage", "ngs_xcomp")]
+NGS_RECEIVING = [("avg_separation", "ngs_sep"), ("avg_cushion", "ngs_cush"),
+                 ("avg_yac_above_expectation", "ngs_yacoe"), ("percent_share_of_intended_air_yards", "ngs_airshare"),
+                 ("avg_intended_air_yards", "ngs_tay")]
+NGS_RUSHING = [("rush_yards_over_expected", "ngs_ryoe"), ("rush_yards_over_expected_per_att", "ngs_ryoe_att"),
+               ("efficiency", "ngs_eff"), ("avg_time_to_los", "ngs_ttl"),
+               ("percent_attempts_gte_eight_defenders", "ngs_stacked"), ("rush_pct_over_expected", "ngs_rpoe")]
+
+
+def ngs_season_map(df, season, cols):
+    """gsis_id -> {shipped key: value} for season totals (week 0, regular season)."""
+    if df is None:
+        return {}
+    d = df[(df["season"] == season) & (df["week"] == 0) & (df["season_type"] == "REG")]
+    out = {}
+    for _, r in d.iterrows():
+        gid = r.get("player_gsis_id")
+        if not isinstance(gid, str):
+            continue
+        out[gid] = {key: _num(r[src]) for src, key in cols if src in r and _num(r[src]) is not None}
+    return out
+
+
+def enrich_advanced(players_list, season, xwalk):
+    """Merge Next Gen Stats + snap share into the shipped player dicts."""
+    passing = ngs_season_map(load_ngs("passing"), season, NGS_PASSING)
+    receiving = ngs_season_map(load_ngs("receiving"), season, NGS_RECEIVING)
+    rushing = ngs_season_map(load_ngs("rushing"), season, NGS_RUSHING)
+
+    snaps = load_snaps(season)
+    snap_pct = {}
+    if snaps is not None:
+        s = snaps[snaps["game_type"] == "REG"]
+        by = s.groupby("pfr_player_id")["offense_pct"].mean()
+        for pfr, v in by.items():
+            gid = xwalk.get(pfr)
+            if gid and not pd.isna(v):
+                snap_pct[gid] = round(float(v) * 100, 1)
+
+    for p in players_list:
+        gid = p.get("id")
+        if not gid:
+            continue
+        for src in (passing, receiving, rushing):
+            if gid in src:
+                p.update(src[gid])
+        if gid in snap_pct:
+            p["snap_pct"] = snap_pct[gid]
+
+
+def build_field(pbp: pd.DataFrame, ids: set) -> dict:
+    """Per-player field maps from play-by-play:
+      pass  (QB throws) / tgt (targets) : 3 dirs x 4 depth buckets, [att, comp, yards]
+      rush  : 7 gap zones [LE,LT,LG,M,RG,RT,RE], [att, yards]
+    Depth buckets by air_yards: <0 behind, 0-9 short, 10-19 mid, 20+ deep."""
+    DIR = {"left": 0, "middle": 1, "right": 2}
+    def depth(ay):
+        if ay < 0: return 0
+        if ay < 10: return 1
+        if ay < 20: return 2
+        return 3
+    def blank_grid():
+        return [[0, 0, 0] for _ in range(12)]  # (dir*4 + depth)
+
+    out: dict[str, dict] = {}
+    df = pbp[pbp["season_type"] == "REG"]
+
+    # passing (by passer) & targets (by receiver)
+    pa = df[(df["pass_attempt"] == 1) & df["pass_location"].notna() & df["air_yards"].notna()]
+    for _, r in pa.iterrows():
+        di = DIR.get(r["pass_location"]); de = depth(r["air_yards"])
+        if di is None: continue
+        idx = di * 4 + de
+        comp = 1 if r.get("complete_pass") == 1 else 0
+        yds = int(r["yards_gained"]) if comp and not pd.isna(r.get("yards_gained")) else 0
+        for pid, key in [(r.get("passer_player_id"), "pass"), (r.get("receiver_player_id"), "tgt")]:
+            if not isinstance(pid, str) or pid not in ids:
+                continue
+            g = out.setdefault(pid, {}).setdefault(key, blank_grid())
+            g[idx][0] += 1; g[idx][1] += comp; g[idx][2] += yds
+
+    # rushing (by rusher)
+    GAP = {("left", "end"): 0, ("left", "tackle"): 1, ("left", "guard"): 2, ("middle", None): 3,
+           ("right", "guard"): 4, ("right", "tackle"): 5, ("right", "end"): 6}
+    ru = df[(df["rush_attempt"] == 1) & df["run_location"].notna()]
+    for _, r in ru.iterrows():
+        gap = r.get("run_gap"); gap = gap if isinstance(gap, str) else None
+        loc = r["run_location"]
+        zi = GAP.get((loc, gap))
+        if zi is None:
+            zi = GAP.get((loc, None), 3)
+        pid = r.get("rusher_player_id")
+        if not isinstance(pid, str) or pid not in ids:
+            continue
+        g = out.setdefault(pid, {}).setdefault("rush", [[0, 0] for _ in range(7)])
+        g[zi][0] += 1
+        if not pd.isna(r.get("yards_gained")):
+            g[zi][1] += int(r["yards_gained"])
+    return out
 
 
 def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
@@ -360,6 +487,9 @@ def main():
         print("FATAL: could not fetch games.csv")
         sys.exit(1)
 
+    XWALK = pfr_to_gsis()  # pfr_id -> gsis_id, for snap-count joins (loaded once)
+    print(f"crosswalk: {len(XWALK)} pfr-gsis ids")
+
     built = []
     for season in SEASONS:
         print(f"\n== Season {season} ==")
@@ -376,15 +506,30 @@ def main():
         team_record = {row["team"]: row for lst in standings.values() for row in lst}
         teams = build_teams(pbp, team_df, team_record)
         players_list = build_players(players)
+        ids = {p["id"] for p in players_list if p.get("id")}
+
+        # Next Gen Stats + snap share (merged into player rows)
+        try:
+            enrich_advanced(players_list, season, XWALK)
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! advanced stats skipped: {e}")
 
         # weekly game logs (separate file, lazy-loaded by the profile pages)
         pweek = load_player_week(season)
         if pweek is not None:
-            ids = {p["id"] for p in players_list if p.get("id")}
             weekly = build_weekly(pweek, ids)
             wf = DATA_DIR / f"weekly_{season}.json"
             wf.write_text(json.dumps({"season": season, "players": weekly}, separators=(",", ":")), encoding="utf-8")
             print(f"  wrote {wf.name}  ({wf.stat().st_size // 1024} KB)")
+
+        # field maps (separate file, lazy-loaded by the profile pages)
+        try:
+            field = build_field(pbp, ids)
+            ff = DATA_DIR / f"field_{season}.json"
+            ff.write_text(json.dumps({"season": season, "players": field}, separators=(",", ":")), encoding="utf-8")
+            print(f"  wrote {ff.name}  ({ff.stat().st_size // 1024} KB)")
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! field maps skipped: {e}")
 
         # merge weekly EPA into the point-diff trends
         for abbr, wk in weekly_epa.items():
