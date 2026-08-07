@@ -26,6 +26,7 @@
     college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
     collegeScope: "National", collegeClass: "FBS",
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
+    wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
   };
   const charts = {};
 
@@ -229,6 +230,8 @@
     $("#player-y").addEventListener("change", (e) => { state.playerY = e.target.value; renderPlayers(); });
     $("#player-set").addEventListener("change", (e) => { state.playerSet = e.target.value; state.playerHeat = PLAYER_SETS[e.target.value].slice(); playerChips(); renderPlayers(); });
     $("#player-qual").addEventListener("change", (e) => { state.playerQual = e.target.checked; renderPlayers(); });
+    $("#player-wk-from").addEventListener("change", (e) => { state.wkFrom = +e.target.value; if (state.wkFrom > (state.wkTo === 99 ? state.wkMax : state.wkTo)) { state.wkTo = state.wkFrom; $("#player-wk-to").value = state.wkFrom; } renderPlayers(); });
+    $("#player-wk-to").addEventListener("change", (e) => { state.wkTo = +e.target.value === state.wkMax ? 99 : +e.target.value; if ((state.wkTo === 99 ? state.wkMax : state.wkTo) < state.wkFrom) { state.wkFrom = +e.target.value; $("#player-wk-from").value = e.target.value; } renderPlayers(); });
 
     $("#week-select").addEventListener("change", renderScores);
     $("#team-select").addEventListener("change", () => { state.team = $("#team-select").value; renderTrends(); });
@@ -338,6 +341,12 @@
     const weeks = Object.keys(state.data.scores).sort(weekOrder);
     $("#week-select").innerHTML = weeks.map((w) => `<option value="${w}">${weekLabel(w)}</option>`).join("");
     $("#week-select").value = weeks[weeks.length - 1];
+    // player week-range selects (regular-season weeks present)
+    const regMax = Math.max(18, ...weeks.filter((w) => /^\d+$/.test(w)).map(Number), 1);
+    state.wkMax = regMax; state.wkFrom = 1; state.wkTo = 99; state.rangeKey = null;
+    const wkOpts = (last) => Array.from({ length: regMax }, (_, i) => i + 1).map((w) => `<option value="${w}">Wk ${w}</option>`).join("");
+    $("#player-wk-from").innerHTML = wkOpts(); $("#player-wk-from").value = 1;
+    $("#player-wk-to").innerHTML = wkOpts(); $("#player-wk-to").value = regMax;
     buildSearchIndex();
     renderAll();
   }
@@ -443,16 +452,40 @@
     const d = POS_DEFAULTS[pos] || POS_DEFAULTS.QB; state.playerPos = pos; state.playerRank = d.rank; state.playerX = d.x; state.playerY = d.y; state.playerSet = d.set; state.playerHeat = PLAYER_SETS[d.set].slice(); state.playerSort = null;
     $("#player-rank").value = d.rank; $("#player-x").value = d.x; $("#player-y").value = d.y; $("#player-set").value = d.set; if (state.playerChart === "heatmap") playerChips();
   }
+  const rangeActive = () => state.wkFrom > 1 || (state.wkTo !== 99 && state.wkTo < state.wkMax);
+  const rangeHi = () => state.wkTo === 99 ? state.wkMax : state.wkTo;
+  const qualFactor = () => rangeActive() ? Math.max(0.15, (rangeHi() - state.wkFrom + 1) / 17) : 1;
   function qualified(p) {
-    if (p.pos === "QB") return (p.attempts || 0) >= 100;
-    if (p.pos === "RB" || p.pos === "FB") return (p.carries || 0) >= 40;
-    if (p.pos === "WR" || p.pos === "TE") return (p.targets || 0) >= 30;
-    return (p.targets || 0) >= 30 || (p.carries || 0) >= 40;
+    const f = qualFactor();
+    if (p.pos === "QB") return (p.attempts || 0) >= 100 * f;
+    if (p.pos === "RB" || p.pos === "FB") return (p.carries || 0) >= 40 * f;
+    if (p.pos === "WR" || p.pos === "TE") return (p.targets || 0) >= 30 * f;
+    return (p.targets || 0) >= 30 * f || (p.carries || 0) >= 40 * f;
   }
-  function filteredPlayers() { let l = state.data.players.filter(POS_MATCH[state.playerPos] || (() => true)); if (state.playerQual) l = l.filter(qualified); return l; }
-  function renderPlayers() {
+  function buildRangePlayers(weekly) {
+    const from = state.wkFrom, to = rangeHi();
+    return state.data.players.map((base) => {
+      const w = weekly[base.id]; if (!w) return null;
+      const idxs = w.wk.map((wk, i) => (wk >= from && wk <= to ? i : -1)).filter((i) => i >= 0);
+      if (!idxs.length) return null;
+      const syn = { id: base.id, player: base.player, team: base.team, pos: base.pos, grp: base.grp, face: base.face, games: idxs.length };
+      NGS_KEYS.forEach((k) => { if (base[k] != null) syn[k] = base[k]; }); // NGS/snap stay season-level
+      WEEKLY_SUM_KEYS.forEach((f) => { if (!w[f]) return; let s = 0, any = false; idxs.forEach((i) => { const v = w[f][i]; if (v != null) { s += v; any = true; } }); if (any) syn[f] = Math.round(s * 100) / 100; });
+      WEEKLY_AVG_KEYS.forEach((f) => { if (!w[f]) return; let s = 0, n = 0; idxs.forEach((i) => { const v = w[f][i]; if (v != null) { s += v; n++; } }); if (n) syn[f] = Math.round(s / n * 1000) / 1000; });
+      return syn;
+    }).filter(Boolean);
+  }
+  const basePlayers = () => (rangeActive() && state.rangePlayers) ? state.rangePlayers : state.data.players;
+  function filteredPlayers() { let l = basePlayers().filter(POS_MATCH[state.playerPos] || (() => true)); if (state.playerQual) l = l.filter(qualified); return l; }
+  async function renderPlayers() {
+    if (rangeActive()) {
+      const w = await ensureWeekly();
+      const key = `${state.season}:${state.wkFrom}:${rangeHi()}`;
+      if (state.rangeKey !== key) { state.rangePlayers = buildRangePlayers(w); state.rangeKey = key; }
+    }
     const list = filteredPlayers(), c = state.playerChart;
-    $("#player-hint").textContent = c === "bar" ? "Top 15 by the selected stat · colored by team · click a bar for the player profile" : c === "scatter" ? "Every qualified player · colored by team · click a dot for the profile" : "Top 20 players × the stats you pick · teal = better, red = worse · tap chips to change columns";
+    const rangeTxt = rangeActive() ? ` · Weeks ${state.wkFrom}–${rangeHi()}` : "";
+    $("#player-hint").textContent = (c === "bar" ? "Top 15 by the selected stat · colored by team · click a bar for the player profile" : c === "scatter" ? "Every qualified player · colored by team · click a dot for the profile" : "Top 20 players × the stats you pick · teal = better, red = worse · tap chips to change columns") + rangeTxt;
     if (c === "bar") playerBar(list); else if (c === "scatter") playerScatter(list);
     else { const primary = PSTAT[state.playerHeat[0]]; const top = list.map((p) => ({ p, v: pval(p, primary) })).filter((r) => r.v != null).sort((a, b) => primary.hi ? b.v - a.v : a.v - b.v).slice(0, 20).map((r) => r.p); heatmap("player-chart-el", top, (p) => p.player, (p) => `${p.player} (${p.team})`, state.playerHeat, PSTAT, "players-heatmap"); }
     renderPlayerTable(list);
@@ -791,7 +824,10 @@
     WR: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
     TE: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
   };
-  const GAMELOG = [["Passing yards", "py"], ["Rushing yards", "ry"], ["Receiving yards", "recy"], ["Receptions", "rec"], ["Total TDs", "td"], ["Fantasy PPR", "ppr"]];
+  const GAMELOG = [["Passing yards", "passing_yards"], ["Rushing yards", "rushing_yards"], ["Receiving yards", "receiving_yards"], ["Receptions", "receptions"], ["Total TDs", "__td"], ["Fantasy PPR", "fantasy_points_ppr"]];
+  const WEEKLY_SUM_KEYS = ["completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "passing_air_yards", "passing_first_downs", "sacks_suffered", "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa", "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch", "fantasy_points", "fantasy_points_ppr"];
+  const WEEKLY_AVG_KEYS = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"];
+  const NGS_KEYS = ["snap_pct", "ngs_ttt", "ngs_iay", "ngs_agg", "ngs_cpoe", "ngs_ayts", "ngs_rating", "ngs_xcomp", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay", "ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked", "ngs_rpoe"];
 
   function rankPct(values, val, hi) { const arr = values.filter((v) => v != null); const n = arr.length; if (!n) return null; const rank = 1 + arr.filter((v) => hi ? v > val : v < val).length; return { rank, n, pct: n > 1 ? (n - rank) / (n - 1) : 1 }; }
   const barColor = (pct) => pct >= 0.5 ? "#2a9d8f" : pct >= 0.25 ? "#e6c86e" : "#d1493f";
@@ -820,16 +856,19 @@
     // charts
     $("#prof-log-ctl").style.display = ""; $("#prof-chart2-wrap").style.display = "none";
     $("#prof-log-stat").innerHTML = GAMELOG.map(([l, k]) => `<option value="${k}">${l}</option>`).join("");
-    state.logStat = b === "QB" ? "py" : b === "RB" ? "ry" : "recy"; $("#prof-log-stat").value = state.logStat;
+    state.logStat = b === "QB" ? "passing_yards" : b === "RB" ? "rushing_yards" : "receiving_yards"; $("#prof-log-stat").value = state.logStat;
     activate("profile", null);
     radarChart("prof-radar", [{ name: p.player, color: color(p.team), vals: keys.map((k) => Math.round((rankPct(peers.map((x) => pval(x, PSTAT[k])), pval(p, PSTAT[k]), PSTAT[k].hi) || { pct: 0 }).pct * 100)) }], keys.map((k) => PSTAT[k].l), "Percentile vs position");
     await ensureWeekly(); renderGameLog(p);
     renderField(p);
   }
+  const weeklyVals = (log, stat) => stat === "__td"
+    ? (log.wk || []).map((_, i) => (log.passing_tds ? log.passing_tds[i] || 0 : 0) + (log.rushing_tds ? log.rushing_tds[i] || 0 : 0) + (log.receiving_tds ? log.receiving_tds[i] || 0 : 0))
+    : (log[stat] || []);
   function renderGameLog(p) {
     const log = (state.weekly[state.season] || {})[p.id];
     const stat = state.logStat, label = (GAMELOG.find(([, k]) => k === stat) || [])[0] || "";
-    const wk = log ? log.wk : [], vals = log ? log[stat] : [];
+    const wk = log ? log.wk : [], vals = log ? weeklyVals(log, stat) : [];
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     ec("prof-chart1").setOption({
       backgroundColor: "transparent", ...chartExtras(`nfl-${p.player}-gamelog-${stat}-${state.season}`),

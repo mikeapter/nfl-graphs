@@ -513,22 +513,32 @@ def build_def_field(pbp: pd.DataFrame) -> dict:
     return {k: v for k, v in out.items() if k in TEAMS}
 
 
+# Weekly raw fields shipped for the game log AND the week-range re-aggregation.
+WEEKLY_SUM = [
+    "completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions",
+    "passing_epa", "passing_air_yards", "passing_first_downs", "sacks_suffered",
+    "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs",
+    "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa",
+    "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch",
+    "fantasy_points", "fantasy_points_ppr",
+]
+WEEKLY_AVG = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"]  # rate stats
+
+
 def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
-    """Compact per-player weekly (regular-season) game log for the shipped players."""
+    """Per-player weekly (regular-season) stats — full raw field set so the client
+    can rebuild any stat over a chosen week range, plus power the game log."""
     df = pweek[(pweek["season_type"] == "REG") & (pweek["player_id"].isin(ids))]
-    g = lambda r, c: (0 if pd.isna(r.get(c)) else r.get(c))
     out: dict[str, dict] = {}
     for pid, grp in df.groupby("player_id"):
         grp = grp.sort_values("week")
-        rec = {"wk": [], "py": [], "ry": [], "recy": [], "rec": [], "td": [], "ppr": []}
-        for _, r in grp.iterrows():
-            rec["wk"].append(int(r["week"]))
-            rec["py"].append(int(g(r, "passing_yards")))
-            rec["ry"].append(int(g(r, "rushing_yards")))
-            rec["recy"].append(int(g(r, "receiving_yards")))
-            rec["rec"].append(int(g(r, "receptions")))
-            rec["td"].append(int(g(r, "passing_tds") + g(r, "rushing_tds") + g(r, "receiving_tds")))
-            rec["ppr"].append(round(float(g(r, "fantasy_points_ppr")), 1))
+        rec = {"wk": [int(w) for w in grp["week"]]}
+        for f in WEEKLY_SUM:
+            if f in grp:
+                rec[f] = [_num(v) or 0 for v in grp[f]]
+        for f in WEEKLY_AVG:
+            if f in grp:
+                rec[f] = [_num(v) for v in grp[f]]
         out[pid] = rec
     return out
 
