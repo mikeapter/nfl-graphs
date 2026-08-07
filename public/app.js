@@ -135,6 +135,24 @@
     { k: "ngs_ttl", l: "Time to line (s)", hi: false, d: 2 },
     { k: "ngs_stacked", l: "% vs 8+ defenders", hi: true, d: 1 },
     { k: "ngs_rpoe", l: "Rush % over expected", hi: true, d: 2 },
+    // IDP (defense)
+    { k: "tackles", l: "Tackles", hi: true, fn: (p) => (p.def_tackles_solo || 0) + (p.def_tackle_assists || 0) },
+    { k: "def_tackles_solo", l: "Solo tackles", hi: true },
+    { k: "def_sacks", l: "Sacks", hi: true, d: 1 },
+    { k: "def_tackles_for_loss", l: "Tackles for loss", hi: true },
+    { k: "def_qb_hits", l: "QB hits", hi: true },
+    { k: "def_interceptions", l: "Interceptions (def)", hi: true },
+    { k: "def_pass_defended", l: "Passes defended", hi: true },
+    { k: "def_fumbles_forced", l: "Forced fumbles", hi: true },
+    { k: "def_tds", l: "Defensive TDs", hi: true },
+    // Kicking
+    { k: "fg_made", l: "FG made", hi: true },
+    { k: "fg_att", l: "FG attempts", hi: true },
+    { k: "fg_pct", l: "FG %", hi: true, d: 1, fn: (p) => p.fg_att ? 100 * (p.fg_made || 0) / p.fg_att : null },
+    { k: "fg_50plus", l: "FG made 50+", hi: true, fn: (p) => (p.fg_made_50_59 || 0) + (p.fg_made_60_ || 0) },
+    { k: "fg_long", l: "Longest FG", hi: true },
+    { k: "pat_made", l: "XP made", hi: true },
+    { k: "k_points", l: "Points (kicking)", hi: true, fn: (p) => (p.fg_made || 0) * 3 + (p.pat_made || 0) },
   ];
   const PLAYER_SETS = {
     Passing: ["passing_yards", "passing_tds", "passing_epa", "cmp_pct", "ypa", "passing_cpoe"],
@@ -144,6 +162,8 @@
     "Next Gen · pass": ["ngs_cpoe", "ngs_ttt", "ngs_agg", "ngs_ayts", "ngs_rating", "ngs_xcomp"],
     "Next Gen · rec": ["ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay", "snap_pct"],
     "Next Gen · rush": ["ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked", "snap_pct"],
+    Defense: ["def_sacks", "tackles", "def_tackles_for_loss", "def_qb_hits", "def_interceptions", "def_pass_defended"],
+    Kicking: ["fg_made", "fg_pct", "fg_50plus", "fg_long", "k_points"],
   };
   const TSTAT = Object.fromEntries(TEAM_STATS.map((s) => [s.k, s]));
   const PSTAT = Object.fromEntries(PLAYER_STATS.map((s) => [s.k, s]));
@@ -156,8 +176,8 @@
   const PL_PASS = new Set(["passing_yards", "pass_ypg", "passing_tds", "passing_epa", "passing_cpoe", "cmp_pct", "ypa", "td_pct", "int_pct", "passing_interceptions", "attempts", "completions", "passing_first_downs", "passing_air_yards", "sacks_suffered"]);
   const PL_RUSH = new Set(["carries", "rushing_yards", "rush_ypg", "rushing_tds", "rushing_epa", "ypc", "rushing_first_downs"]);
   const PL_REC = new Set(["targets", "receptions", "receiving_yards", "rec_ypg", "receiving_tds", "receiving_epa", "ypr", "catch_pct", "ypt", "adot", "receiving_first_downs", "target_share", "air_yards_share", "wopr", "racr", "receiving_yards_after_catch"]);
-  const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
-  const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Overall", "Next Gen"];
+  const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : (k.startsWith("def_") || k === "tackles") ? "Defense" : (k.startsWith("fg_") || k.startsWith("pat_") || k === "k_points") ? "Kicking" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
+  const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Overall", "Next Gen", "Defense", "Kicking"];
 
   // College stat catalog (reliable cfbfastR aggregates — no TDs in the source)
   const CSTAT = {
@@ -475,11 +495,13 @@
       series: [{ type: "bar", data: list.map((r) => ({ value: r.v, name: r.team, itemStyle: { color: color(r.team), borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, s) }, barMaxWidth: 13 }],
     }, true);
   }
-  const POS_MATCH = { QB: (p) => p.pos === "QB", RB: (p) => p.pos === "RB" || p.pos === "FB", WR: (p) => p.pos === "WR", TE: (p) => p.pos === "TE", SKILL: (p) => ["RB", "FB", "WR", "TE"].includes(p.pos) };
+  const DEF_POS = new Set(["LB", "CB", "DT", "DE", "SAF", "DB", "FS", "SS", "S", "OLB", "MLB", "ILB", "NT", "EDGE"]);
+  const POS_MATCH = { QB: (p) => p.pos === "QB", RB: (p) => p.pos === "RB" || p.pos === "FB", WR: (p) => p.pos === "WR", TE: (p) => p.pos === "TE", SKILL: (p) => ["RB", "FB", "WR", "TE"].includes(p.pos), DEF: (p) => DEF_POS.has(p.pos), K: (p) => p.pos === "K" };
   const POS_DEFAULTS = {
     QB: { rank: "passing_yards", x: "attempts", y: "passing_epa", set: "Passing" }, RB: { rank: "rushing_yards", x: "carries", y: "rushing_epa", set: "Rushing" },
     WR: { rank: "receiving_yards", x: "targets", y: "receiving_epa", set: "Receiving" }, TE: { rank: "receiving_yards", x: "targets", y: "receiving_epa", set: "Receiving" },
     SKILL: { rank: "fantasy_points_ppr", x: "rushing_yards", y: "receiving_yards", set: "Fantasy" },
+    DEF: { rank: "def_sacks", x: "tackles", y: "def_sacks", set: "Defense" }, K: { rank: "fg_made", x: "fg_att", y: "fg_pct", set: "Kicking" },
   };
   function applyPlayerDefaults(pos) {
     const d = POS_DEFAULTS[pos] || POS_DEFAULTS.QB; state.playerPos = pos; state.playerRank = d.rank; state.playerX = d.x; state.playerY = d.y; state.playerSet = d.set; state.playerHeat = PLAYER_SETS[d.set].slice(); state.playerSort = null;
@@ -494,6 +516,8 @@
     if (p.pos === "QB") return (p.attempts || 0) >= 100 * f;
     if (p.pos === "RB" || p.pos === "FB") return (p.carries || 0) >= 40 * f;
     if (p.pos === "WR" || p.pos === "TE") return (p.targets || 0) >= 30 * f;
+    if (p.pos === "K") return (p.fg_att || 0) >= 10 * f;
+    if (DEF_POS.has(p.pos)) return ((p.def_tackles_solo || 0) + (p.def_tackle_assists || 0)) >= 25 * f || (p.def_sacks || 0) >= 2 * f;
     return (p.targets || 0) >= 30 * f || (p.carries || 0) >= 40 * f;
   }
   function buildRangePlayers(weekly) {
@@ -548,7 +572,7 @@
   }
   function renderPlayerTable(list) {
     const rankStat = PSTAT[state.playerRank];
-    const setKey = state.playerChart === "heatmap" ? state.playerSet : (state.playerPos === "QB" ? "Passing" : state.playerPos === "RB" ? "Rushing" : "Receiving");
+    const setKey = state.playerChart === "heatmap" ? state.playerSet : ({ QB: "Passing", RB: "Rushing", DEF: "Defense", K: "Kicking" }[state.playerPos] || "Receiving");
     const cols = Array.from(new Set([state.playerRank, ...PLAYER_SETS[setKey]])).slice(0, 6).map((k) => PSTAT[k]);
     const sort = state.playerSort || { key: state.playerRank, dir: rankStat.hi ? -1 : 1 };
     const ss = PSTAT[sort.key];
@@ -841,12 +865,14 @@
   function clearSearch() { $("#global-search").value = ""; $("#search-clear").hidden = true; }
 
   // ---- Profiles (full page) ----------------------------------------------
-  const bucket = (pos) => pos === "QB" ? "QB" : (pos === "RB" || pos === "FB") ? "RB" : pos === "TE" ? "TE" : "WR";
+  const bucket = (pos) => pos === "QB" ? "QB" : (pos === "RB" || pos === "FB") ? "RB" : pos === "TE" ? "TE" : pos === "K" ? "K" : DEF_POS.has(pos) ? "DEF" : "WR";
   const PROFILE_PLAYER = {
     QB: ["passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "cmp_pct", "ypa", "passing_cpoe", "fppg"],
     RB: ["rushing_yards", "rushing_tds", "ypc", "rushing_epa", "yds_scrim", "touches", "receptions", "fppg"],
     WR: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "target_share", "catch_pct", "fppg"],
     TE: ["receiving_yards", "receptions", "receiving_tds", "receiving_epa", "ypr", "target_share", "catch_pct", "fppg"],
+    DEF: ["def_sacks", "tackles", "def_tackles_for_loss", "def_qb_hits", "def_interceptions", "def_pass_defended", "def_fumbles_forced", "def_tds"],
+    K: ["fg_made", "fg_pct", "fg_50plus", "fg_long", "pat_made", "games"],
   };
   const PROFILE_TEAM = ["off_epa", "def_epa", "net_epa", "ppg", "papg", "pd", "ypp", "first_downs"];
   // Compare radars blend core production with Next Gen Stats.
@@ -886,7 +912,7 @@
     const advPresent = advKeys.some((k) => pval(p, PSTAT[k]) != null);
     const advHtml = advPresent ? `<div class="prof-section-t">Advanced · Next Gen Stats</div><div class="stat-rows">${advKeys.map(bar).join("")}</div>` : "";
     const face = p.face ? `<img class="headshot" src="${p.face}" alt="" onerror="this.style.visibility='hidden'"/>` : `<div class="headshot"></div>`;
-    $("#profile-body").innerHTML = `<div class="prof-head"><div class="prof-face">${face}<img class="logo-badge" src="${logo(p.team)}" alt=""/></div><div class="prof-title"><h3>${p.player}</h3><div class="meta">${p.pos || ""} · ${teamMeta(p.team).name} · ${p.games || 0} games · ${state.season}</div></div></div><div class="prof-section-t">Season stats · rank vs qualified ${b === "QB" ? "QBs" : b === "RB" ? "RBs" : b === "TE" ? "TEs" : "WRs"}</div><div class="stat-rows">${rows}</div>${advHtml}`;
+    $("#profile-body").innerHTML = `<div class="prof-head"><div class="prof-face">${face}<img class="logo-badge" src="${logo(p.team)}" alt=""/></div><div class="prof-title"><h3>${p.player}</h3><div class="meta">${p.pos || ""} · ${teamMeta(p.team).name} · ${p.games || 0} games · ${state.season}</div></div></div><div class="prof-section-t">Season stats · rank vs qualified ${{ QB: "QBs", RB: "RBs", TE: "TEs", DEF: "defenders", K: "kickers" }[b] || "WRs"}</div><div class="stat-rows">${rows}</div>${advHtml}`;
     // compare-with options: same-bucket players
     const opts = state.data.players.filter((x) => bucket(x.pos) === b && x.player !== p.player).sort((a, c) => a.player.localeCompare(c.player));
     $("#prof-compare").innerHTML = `<option value="">Compare with…</option>` + opts.map((x) => `<option value="${x.id || x.player}">${x.player}</option>`).join("");

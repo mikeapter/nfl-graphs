@@ -638,6 +638,10 @@ PLAYER_FIELDS = [
     "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch",
     "target_share", "air_yards_share", "wopr", "racr",
     "fantasy_points", "fantasy_points_ppr",
+    # IDP (defense) + kicker
+    "def_tackles_solo", "def_tackle_assists", "def_tackles_for_loss", "def_sacks",
+    "def_qb_hits", "def_interceptions", "def_pass_defended", "def_fumbles_forced", "def_tds",
+    "fg_made", "fg_att", "fg_long", "fg_made_50_59", "fg_made_60_", "pat_made", "pat_att",
 ]
 TEAM_FIELDS = [
     "completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions",
@@ -719,7 +723,8 @@ def compute_team_weekly_epa(pbp: pd.DataFrame) -> dict[str, dict]:
 def build_players(pdf: pd.DataFrame) -> list[dict]:
     """One row per relevant offensive player with a broad set of season stats."""
     keep = pd.Series(False, index=pdf.index)
-    for col, thr in [("attempts", 5), ("carries", 5), ("targets", 3), ("fantasy_points_ppr", 1)]:
+    for col, thr in [("attempts", 5), ("carries", 5), ("targets", 3), ("fantasy_points_ppr", 1),
+                     ("fg_att", 1), ("def_sacks", 1), ("def_interceptions", 1), ("def_tackles_solo", 8)]:
         if col in pdf.columns:
             keep = keep | (pdf[col].fillna(0) >= thr)
     out = []
