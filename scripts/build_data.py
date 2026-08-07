@@ -393,6 +393,86 @@ def build_field(pbp: pd.DataFrame, ids: set) -> dict:
     return out
 
 
+import re as _re
+
+
+def load_participation(season: int):
+    p = fetch(f"{REL}/pbp_participation/pbp_participation_{season}.parquet", CACHE_DIR / f"part_{season}.parquet")
+    if not p:
+        return None
+    cols = ["nflverse_game_id", "play_id", "offense_personnel", "defense_personnel",
+            "offense_formation", "defenders_in_box", "defense_coverage_type", "defense_man_zone_type"]
+    return pd.read_parquet(p, columns=cols)
+
+
+def _pcount(s, pos):
+    return sum(int(x) for x in _re.findall(r"(\d+)\s+" + pos + r"\b", s)) if isinstance(s, str) else 0
+
+
+def _offgrp(s):
+    if not isinstance(s, str):
+        return None
+    rb = _pcount(s, "RB") + _pcount(s, "FB"); te = _pcount(s, "TE"); wr = _pcount(s, "WR")
+    if rb + te + wr == 0:
+        return None
+    return f"{min(rb, 9)}{min(te, 9)}"
+
+
+def _defpkg(s):
+    if not isinstance(s, str):
+        return None
+    db = _pcount(s, "CB") + _pcount(s, "FS") + _pcount(s, "SS") + _pcount(s, "S") + _pcount(s, "DB")
+    return {4: "Base", 5: "Nickel", 6: "Dime"}.get(db, "Quarter+" if db >= 7 else "Heavy")
+
+
+_COV = {"COVER_0": "Cover 0", "COVER_1": "Cover 1", "COVER_2": "Cover 2", "COVER_3": "Cover 3",
+        "COVER_4": "Cover 4", "COVER_6": "Cover 6", "2_MAN": "2-Man", "COMBO": "Combo", "PREVENT": "Prevent"}
+
+
+def build_tendencies(season: int):
+    """Join participation (personnel/coverage/front) to pbp for down/distance/
+    quarter context, and ship a compact per-play table for client-side slicing."""
+    part = load_participation(season)
+    ppath = CACHE_DIR / f"pbp_{season}.parquet"
+    if part is None or not ppath.exists():
+        return None
+    pbp = pd.read_parquet(ppath, columns=["game_id", "play_id", "week", "season_type",
+                                          "down", "ydstogo", "qtr", "posteam", "defteam", "play_type"])
+    m = part.merge(pbp, left_on=["nflverse_game_id", "play_id"], right_on=["game_id", "play_id"], how="inner")
+    m = m[(m["season_type"] == "REG") & m["play_type"].isin(["run", "pass"]) & m["down"].notna() & m["posteam"].notna()]
+
+    teams = list(TEAMS.keys())
+    tidx = {t: i for i, t in enumerate(teams)}
+    grp_list, form_list, pkg_list, cov_list = [], [], [], []
+    def code(lst, v):
+        if v is None:
+            return -1
+        if v not in lst:
+            lst.append(v)
+        return lst.index(v)
+
+    def dbucket(y):
+        y = int(y)
+        return 0 if y <= 3 else 1 if y <= 6 else 2 if y <= 9 else 3
+
+    plays = []
+    for r in m.itertuples(index=False):
+        if r.posteam not in tidx or r.defteam not in tidx:
+            continue
+        cov = _COV.get(r.defense_coverage_type, r.defense_coverage_type if isinstance(r.defense_coverage_type, str) and r.defense_coverage_type else None)
+        mz = 1 if r.defense_man_zone_type == "MAN_COVERAGE" else 2 if r.defense_man_zone_type == "ZONE_COVERAGE" else 0
+        form = r.offense_formation.title() if isinstance(r.offense_formation, str) and r.offense_formation else None
+        plays.append([
+            tidx[r.posteam], tidx[r.defteam], int(r.down), dbucket(r.ydstogo),
+            int(r.qtr) if pd.notna(r.qtr) else 0, int(r.week), 1 if r.play_type == "pass" else 0,
+            code(grp_list, _offgrp(r.offense_personnel)), code(form_list, form),
+            code(pkg_list, _defpkg(r.defense_personnel)), code(cov_list, cov),
+            mz, int(r.defenders_in_box) if pd.notna(r.defenders_in_box) else 0,
+        ])
+    return {"season": season, "teams": teams, "grp": grp_list, "form": form_list,
+            "pkg": pkg_list, "cov": cov_list, "plays": plays}
+
+
 def build_def_field(pbp: pd.DataFrame) -> dict:
     """Per-DEFENSE-team field maps (mirror of build_field, keyed by defteam):
       pass : 3 dirs x 4 depth buckets, [targets faced, completions allowed, yards allowed]
@@ -656,6 +736,7 @@ def main():
 
     built = []
     college_built = []
+    tend_built = []
     for season in SEASONS:
         print(f"\n== Season {season} ==")
         pbp = load_pbp(season)
@@ -709,6 +790,17 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"  !! college skipped: {e}")
 
+        # tendencies (personnel / coverage / fronts by situation)
+        try:
+            tend = build_tendencies(season)
+            if tend and tend["plays"]:
+                tf = DATA_DIR / f"tendencies_{season}.json"
+                tf.write_text(json.dumps(tend, separators=(",", ":")), encoding="utf-8")
+                print(f"  wrote {tf.name}  ({tf.stat().st_size // 1024} KB, {len(tend['plays'])} plays)")
+                tend_built.append(season)
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! tendencies skipped: {e}")
+
         # merge weekly EPA into the point-diff trends
         for abbr, wk in weekly_epa.items():
             t = trends.setdefault(abbr, {"weeks": [], "pd": [], "result": []})
@@ -739,6 +831,7 @@ def main():
     meta = {
         "seasons": sorted(built, reverse=True),
         "college_seasons": sorted(college_built, reverse=True),
+        "tendencies_seasons": sorted(tend_built, reverse=True),
         "latest": max(built),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "teams": {

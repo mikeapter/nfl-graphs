@@ -39,6 +39,7 @@
     <button class="tab" data-view="standings" role="tab">Standings &amp; Scores</button>
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
     <button class="tab" data-view="college" role="tab">College</button>
+    <button class="tab" data-view="tendencies" role="tab">Tendencies</button>
   </nav>
 
   <main id="main">
@@ -182,6 +183,30 @@
       </div>
       <div class="chart-wrap"><div id="cmp-radar" class="chart tall"></div></div>
       <div class="table-wrap"><table id="cmp-table"></table></div>
+    </section>
+
+    <!-- Tendencies -->
+    <section class="view" id="view-tendencies">
+      <div class="view-head">
+        <h2>Tendencies</h2>
+        <div class="builder">
+          <label class="ctl"><span>Team</span><select id="tend-team"></select></label>
+          <div class="segmented" id="tend-side">
+            <button class="seg active" data-side="off">Offense</button>
+            <button class="seg" data-side="def">Defense</button>
+          </div>
+          <label class="ctl"><span>Show</span><select id="tend-metric"></select></label>
+          <div class="segmented" id="tend-break">
+            <button class="seg active" data-break="down">By down</button>
+            <button class="seg" data-break="dist">By distance</button>
+            <button class="seg" data-break="qtr">By quarter</button>
+          </div>
+          <label class="ctl"><span>Plays</span><select id="tend-ptype"><option value="">All plays</option><option value="1">Pass</option><option value="0">Run</option></select></label>
+          <label class="ctl"><span>Game</span><select id="tend-game"></select></label>
+        </div>
+        <p class="hint" id="tend-hint"></p>
+      </div>
+      <div class="chart-wrap"><div id="tend-chart" class="chart tall"></div></div>
     </section>
   </main>
 

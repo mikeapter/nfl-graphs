@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["teams", "players", "standings", "trends", "college"];
+  const TABS = ["teams", "players", "standings", "trends", "college", "tendencies"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -25,6 +25,7 @@
     field: {}, fieldMap: null,
     college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
     collegeScope: "National", collegeClass: "FBS",
+    tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
   };
   const charts = {};
 
@@ -248,6 +249,15 @@
     $("#college-filter").addEventListener("input", (e) => { state.collegeFilter = e.target.value.toLowerCase(); renderCollege(); });
     $("#college-table").addEventListener("click", onCollegeTableClick);
 
+    // Tendencies builder
+    fillTendMetric(state.tendSide);
+    $("#tend-team").addEventListener("change", (e) => { state.tendTeam = e.target.value; fillTendGames(); state.tendGame = ""; renderTendencies(); });
+    segmented("#tend-side", (v) => { state.tendSide = v; fillTendMetric(v); renderTendencies(); });
+    $("#tend-metric").addEventListener("change", (e) => { state.tendMetric = e.target.value; renderTendencies(); });
+    segmented("#tend-break", (v) => { state.tendBreak = v; renderTendencies(); });
+    $("#tend-ptype").addEventListener("change", (e) => { state.tendPtype = e.target.value; renderTendencies(); });
+    $("#tend-game").addEventListener("change", (e) => { state.tendGame = e.target.value; renderTendencies(); });
+
     // Profile / compare controls
     $("#prof-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
     $("#cmp-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
@@ -298,7 +308,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -308,7 +318,7 @@
     el.value = sel;
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -345,6 +355,11 @@
     if (state.college[state.season]) return state.college[state.season];
     try { const c = await (await fetch(`./data/college_${state.season}.json`)).json(); state.college[state.season] = { players: c.players, teams: c.teams || {} }; return state.college[state.season]; }
     catch (e) { state.college[state.season] = null; return null; }
+  }
+  async function ensureTendencies() {
+    if (state.tend[state.season]) return state.tend[state.season];
+    try { const t = await (await fetch(`./data/tendencies_${state.season}.json`)).json(); state.tend[state.season] = t; return t; }
+    catch (e) { state.tend[state.season] = null; return null; }
   }
   const cteam = (school) => { const t = state.college[state.season]; return (t && t.teams && t.teams[school]) || { logo: "", color: "#4da3ff", conf: "", abbr: school }; };
   const findCollege = (id) => { const c = state.college[state.season]; return c && c.players.find((p) => p.id === id); };
@@ -604,6 +619,108 @@
     if (th) { const k = th.dataset.k, s = CSTAT[k], cur = state.collegeSort; state.collegeSort = (cur && cur.key === k) ? { key: k, dir: -cur.dir } : { key: k, dir: s.hi ? -1 : 1 }; renderCollege(); return; }
     const tr = e.target.closest("tbody tr"); if (tr && tr.dataset.id) go(`#/cplayer/${encodeURIComponent(tr.dataset.id)}${seasonSuffix()}`);
   }
+  // ---- Tendencies ---------------------------------------------------------
+  const TEND_METRICS = {
+    off: [["Personnel grouping", "grp"], ["Formation", "form"]],
+    def: [["Coverage", "cov"], ["Front / package", "pkg"], ["Man vs zone", "mz"], ["Defenders in box", "box"]],
+  };
+  // metric key -> {idx into play array, legend source, labelFn}
+  const TEND_META = {
+    grp: { idx: 7, leg: (d) => d.grp, lab: (v) => v + " pers" },
+    form: { idx: 8, leg: (d) => d.form, lab: (v) => v },
+    cov: { idx: 10, leg: (d) => d.cov, lab: (v) => v },
+    pkg: { idx: 9, leg: (d) => d.pkg, lab: (v) => v },
+    mz: { idx: 11, leg: () => ["", "Man", "Zone"], lab: (v) => v, skipZero: true },
+    box: { idx: 12, leg: null, lab: (v) => v + " in box" },
+  };
+  const TEND_PALETTE = ["#4da3ff", "#34d399", "#e6c86e", "#f0883e", "#d1493f", "#a78bfa", "#2a9d8f", "#f472b6", "#94a3b8", "#22d3ee", "#fb7185", "#a3e635"];
+  function fillTendMetric(side) {
+    const m = TEND_METRICS[side];
+    $("#tend-metric").innerHTML = m.map(([l, k]) => `<option value="${k}">${l}</option>`).join("");
+    state.tendMetric = m[0][1]; $("#tend-metric").value = state.tendMetric;
+  }
+  function fillTendGames() {
+    const d = state.tend[state.season]; if (!d) return;
+    const ti = d.teams.indexOf(state.tendTeam), sideIdx = state.tendSide === "off" ? 0 : 1;
+    const weeks = {};
+    d.plays.forEach((p) => { if (p[sideIdx] === ti) weeks[p[5]] = p[state.tendSide === "off" ? 1 : 0]; });
+    const opts = Object.keys(weeks).map(Number).sort((a, b) => a - b)
+      .map((w) => `<option value="${w}">Wk ${w} ${state.tendSide === "off" ? "vs" : "vs"} ${d.teams[weeks[w]]}</option>`).join("");
+    $("#tend-game").innerHTML = `<option value="">All games</option>` + opts;
+    $("#tend-game").value = state.tendGame || "";
+  }
+  const BREAKS = {
+    down: { cats: ["1st", "2nd", "3rd", "4th"], of: (p) => p[2] - 1 },
+    dist: { cats: ["1–3", "4–6", "7–9", "10+"], of: (p) => p[3] },
+    qtr: { cats: ["Q1", "Q2", "Q3", "Q4", "OT"], of: (p) => p[4] - 1 },
+  };
+  async function renderTendencies() {
+    const hint = $("#tend-hint");
+    const d = await ensureTendencies();
+    if (!d) { hint.textContent = `No tendencies data for ${state.season}.`; if (charts["tend-chart"]) charts["tend-chart"].clear(); return; }
+    // team select (once per season)
+    const tsel = $("#tend-team");
+    if (tsel.options.length !== d.teams.length) {
+      const sorted = d.teams.slice().sort((a, b) => teamMeta(a).name.localeCompare(teamMeta(b).name));
+      tsel.innerHTML = sorted.map((t) => `<option value="${t}">${teamMeta(t).name}</option>`).join("");
+      if (!state.tendTeam || !d.teams.includes(state.tendTeam)) state.tendTeam = sorted[0];
+      tsel.value = state.tendTeam; fillTendGames();
+    }
+    const ti = d.teams.indexOf(state.tendTeam);
+    const sideIdx = state.tendSide === "off" ? 0 : 1;
+    const mk = state.tendMetric, meta = TEND_META[mk];
+    const legend = meta.leg ? meta.leg(d) : null;
+    const brk = BREAKS[state.tendBreak];
+    const wk = state.tendGame ? +state.tendGame : null;
+    const pt = state.tendPtype;
+
+    // counts[breakCat][metricLabel] = n
+    const counts = brk.cats.map(() => ({}));
+    const rowN = brk.cats.map(() => 0);
+    let total = 0;
+    for (const p of d.plays) {
+      if (p[sideIdx] !== ti) continue;
+      if (wk != null && p[5] !== wk) continue;
+      if (pt !== "" && p[6] !== +pt) continue;
+      const raw = p[meta.idx];
+      let val;
+      if (legend) { if (raw < 0) continue; val = legend[raw]; } else { val = raw; }
+      if (val === "" || val == null) continue;
+      if (meta.skipZero && raw === 0) continue;
+      const bi = brk.of(p); if (bi < 0 || bi >= brk.cats.length) continue;
+      const lab = meta.lab(val);
+      counts[bi][lab] = (counts[bi][lab] || 0) + 1; rowN[bi]++; total++;
+    }
+    // metric categories, ordered by legend order (or numeric), then overall frequency
+    const totals = {};
+    counts.forEach((c) => Object.entries(c).forEach(([k, v]) => { totals[k] = (totals[k] || 0) + v; }));
+    let cats = Object.keys(totals);
+    if (legend) cats.sort((a, b) => legend.map((x) => meta.lab(x)).indexOf(a) - legend.map((x) => meta.lab(x)).indexOf(b));
+    else cats.sort((a, b) => parseFloat(a) - parseFloat(b));
+    cats = cats.sort((a, b) => totals[b] - totals[a]).slice(0, 12); // cap legend size, keep top
+
+    const metricName = TEND_METRICS[state.tendSide].find(([, k]) => k === mk)[0];
+    hint.textContent = `${teamMeta(state.tendTeam).name} ${state.tendSide === "off" ? "offense" : "defense"} · ${metricName} by ${state.tendBreak === "down" ? "down" : state.tendBreak === "dist" ? "distance" : "quarter"} · ${total} plays${wk ? " · Week " + wk : ""}${pt !== "" ? " · " + (pt === "1" ? "pass" : "run") + " only" : ""}${mk === "cov" ? " · coverage charted on pass plays" : ""}`;
+
+    const yCats = brk.cats.map((c, i) => `${c}  (n=${rowN[i]})`);
+    const series = cats.map((cat, ci) => ({
+      name: cat, type: "bar", stack: "s", barMaxWidth: 34,
+      itemStyle: { color: TEND_PALETTE[ci % TEND_PALETTE.length] },
+      label: { show: true, color: "#0b0f17", fontSize: 10, formatter: (p) => p.value >= 8 ? Math.round(p.value) + "%" : "" },
+      data: brk.cats.map((_, bi) => rowN[bi] ? +(100 * (counts[bi][cat] || 0) / rowN[bi]).toFixed(1) : 0),
+    }));
+    ec("tend-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-tendencies-${state.tendTeam}-${mk}-${state.tendBreak}-${state.season}`),
+      grid: { left: 78, right: 20, top: 40, bottom: 24 },
+      legend: { top: 6, left: "center", textStyle: { color: AXIS }, type: "scroll", data: cats },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT },
+        formatter: (ps) => { const bi = ps[0].dataIndex; let s = `<b>${brk.cats[bi]}</b> · ${rowN[bi]} plays<br/>`; ps.filter((x) => x.value > 0).sort((a, b) => b.value - a.value).forEach((x) => { s += `${x.marker}${x.seriesName}: ${x.value}% (${counts[bi][x.seriesName] || 0})<br/>`; }); return s; } },
+      xAxis: { type: "value", max: 100, axisLabel: { color: AXIS, formatter: "{value}%" }, splitLine: { lineStyle: { color: LINE } } },
+      yAxis: { type: "category", data: yCats, inverse: true, axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 11 } },
+      series,
+    }, true);
+  }
+
   const CPROFILE = {
     QB: ["pyd", "ptd", "int", "cmp_pct", "ypa", "games"],
     RB: ["ryd", "rtd", "ypc", "car", "games"],
