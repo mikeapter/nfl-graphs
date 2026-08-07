@@ -57,6 +57,7 @@
           <label class="ctl" data-role="y"><span>Y axis</span><select id="team-y"></select></label>
           <label class="ctl" data-role="rank"><span>Rank by</span><select id="team-rank"></select></label>
           <label class="ctl" data-role="set"><span>Stat set</span><select id="team-set"></select></label>
+          <label class="ctl"><span>Weeks</span><select id="team-wk-from"></select><span class="wk-dash">–</span><select id="team-wk-to"></select></label>
         </div>
         <div class="chips" id="team-heat-chips" hidden></div>
         <p class="hint" id="team-hint"></p>
@@ -69,6 +70,10 @@
       <div class="view-head">
         <h2>Player Explorer</h2>
         <div class="builder">
+          <div class="segmented" id="player-seasontype">
+            <button class="seg active" data-st="reg">Regular</button>
+            <button class="seg" data-st="post">Playoffs</button>
+          </div>
           <div class="segmented" id="player-pos">
             <button class="seg active" data-pos="QB">QB</button>
             <button class="seg" data-pos="RB">RB</button>

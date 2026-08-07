@@ -131,6 +131,13 @@ def load_player_reg(season: int) -> pd.DataFrame | None:
     return pd.read_csv(p, low_memory=False)
 
 
+def load_player_post(season: int) -> pd.DataFrame | None:
+    p = fetch(f"{REL}/stats_player/stats_player_post_{season}.csv", CACHE_DIR / f"player_post_{season}.csv")
+    if not p:
+        return None
+    return pd.read_csv(p, low_memory=False)
+
+
 def load_team_reg(season: int) -> pd.DataFrame | None:
     p = fetch(f"{REL}/stats_team/stats_team_reg_{season}.csv", CACHE_DIR / f"team_reg_{season}.csv")
     if not p:
@@ -440,6 +447,15 @@ def build_tendencies(season: int):
                                           "down", "ydstogo", "qtr", "posteam", "defteam", "play_type"])
     m = part.merge(pbp, left_on=["nflverse_game_id", "play_id"], right_on=["game_id", "play_id"], how="inner")
     m = m[(m["season_type"] == "REG") & m["play_type"].isin(["run", "pass"]) & m["down"].notna() & m["posteam"].notna()]
+    # FTN charting (play-action, screen, RPO, motion, no-huddle, blitzers)
+    ftn = fetch(f"{REL}/ftn_charting/ftn_charting_{season}.parquet", CACHE_DIR / f"ftn_{season}.parquet")
+    if ftn:
+        fdf = pd.read_parquet(ftn, columns=["nflverse_game_id", "nflverse_play_id", "is_play_action",
+                                            "is_screen_pass", "is_rpo", "is_motion", "is_no_huddle", "n_blitzers"])
+        m = m.merge(fdf, left_on=["nflverse_game_id", "play_id"], right_on=["nflverse_game_id", "nflverse_play_id"], how="left")
+    else:
+        for cc in ["is_play_action", "is_screen_pass", "is_rpo", "is_motion", "is_no_huddle", "n_blitzers"]:
+            m[cc] = None
 
     teams = list(TEAMS.keys())
     tidx = {t: i for i, t in enumerate(teams)}
@@ -462,12 +478,17 @@ def build_tendencies(season: int):
         cov = _COV.get(r.defense_coverage_type, r.defense_coverage_type if isinstance(r.defense_coverage_type, str) and r.defense_coverage_type else None)
         mz = 1 if r.defense_man_zone_type == "MAN_COVERAGE" else 2 if r.defense_man_zone_type == "ZONE_COVERAGE" else 0
         form = r.offense_formation.title() if isinstance(r.offense_formation, str) and r.offense_formation else None
+        b01 = lambda v: 1 if v is True or v == 1 else 0 if v is False or v == 0 else -1
         plays.append([
             tidx[r.posteam], tidx[r.defteam], int(r.down), dbucket(r.ydstogo),
             int(r.qtr) if pd.notna(r.qtr) else 0, int(r.week), 1 if r.play_type == "pass" else 0,
             code(grp_list, _offgrp(r.offense_personnel)), code(form_list, form),
             code(pkg_list, _defpkg(r.defense_personnel)), code(cov_list, cov),
             mz, int(r.defenders_in_box) if pd.notna(r.defenders_in_box) else 0,
+            b01(getattr(r, "is_play_action", None)), b01(getattr(r, "is_screen_pass", None)),
+            b01(getattr(r, "is_rpo", None)), b01(getattr(r, "is_motion", None)),
+            b01(getattr(r, "is_no_huddle", None)),
+            1 if (pd.notna(getattr(r, "n_blitzers", None)) and r.n_blitzers >= 1) else (0 if pd.notna(getattr(r, "n_blitzers", None)) else -1),
         ])
     return {"season": season, "teams": teams, "grp": grp_list, "form": form_list,
             "pkg": pkg_list, "cov": cov_list, "plays": plays}
@@ -523,6 +544,69 @@ WEEKLY_SUM = [
     "fantasy_points", "fantasy_points_ppr",
 ]
 WEEKLY_AVG = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"]  # rate stats
+
+
+def load_team_week(season: int):
+    p = fetch(f"{REL}/stats_team/stats_team_week_{season}.csv", CACHE_DIR / f"team_week_{season}.csv")
+    return pd.read_csv(p, low_memory=False) if p else None
+
+
+def build_team_weekly(season: int, pbp: pd.DataFrame, games_path: Path) -> dict:
+    """Per-team weekly (regular season): raw stat totals + points + W/L + EPA
+    sums & play counts, so the client can rebuild team stats over a week range."""
+    tw = load_team_week(season)
+    out = {a: {} for a in TEAMS}  # abbr -> {week -> record}
+
+    if tw is not None:
+        twr = tw[tw["season_type"] == "REG"] if "season_type" in tw.columns else tw
+        for r in twr.itertuples(index=False):
+            t = getattr(r, "team", None)
+            if t not in out:
+                continue
+            wk = int(r.week)
+            rec = out[t].setdefault(wk, {})
+            for f in TEAM_FIELDS:
+                v = _num(getattr(r, f, None))
+                if v is not None:
+                    rec[f] = v
+
+    # points for/against and result from schedule
+    with open(games_path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if int(r["season"]) != season or r["game_type"] != "REG" or r["home_score"] == "":
+                continue
+            wk = int(r["week"]); h, a = r["home_team"], r["away_team"]
+            hs, as_ = int(r["home_score"]), int(r["away_score"])
+            for team, pf, pa in ((h, hs, as_), (a, as_, hs)):
+                if team in out:
+                    rec = out[team].setdefault(wk, {})
+                    rec["pf"] = pf; rec["pa"] = pa
+                    rec["w"] = 1 if pf > pa else 0; rec["l"] = 1 if pf < pa else 0; rec["t"] = 1 if pf == pa else 0
+
+    # EPA sums + play counts per team-week
+    df = pbp[(pbp["season_type"] == "REG") & (pbp["epa"].notna())]
+    df = df[(df["pass"] == 1) | (df["rush"] == 1)]
+    for (team, wk), g in df.groupby(["posteam", "week"]):
+        if team in out:
+            rec = out[team].setdefault(int(wk), {}); rec["oe"] = round(float(g["epa"].sum()), 3); rec["opl"] = int(len(g))
+    for (team, wk), g in df.groupby(["defteam", "week"]):
+        if team in out:
+            rec = out[team].setdefault(int(wk), {}); rec["de"] = round(float(g["epa"].sum()), 3); rec["dpl"] = int(len(g))
+
+    # emit aligned arrays
+    res = {}
+    fields = TEAM_FIELDS + ["pf", "pa", "w", "l", "t", "oe", "opl", "de", "dpl"]
+    for a, bywk in out.items():
+        wks = sorted(bywk)
+        if not wks:
+            continue
+        rec = {"wk": wks}
+        for f in fields:
+            col = [bywk[w].get(f, 0) for w in wks]
+            if any(v for v in col):
+                rec[f] = col
+        res[a] = rec
+    return res
 
 
 def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
@@ -763,6 +847,8 @@ def main():
         teams = build_teams(pbp, team_df, team_record)
         players_list = build_players(players)
         ids = {p["id"] for p in players_list if p.get("id")}
+        post_df = load_player_post(season)
+        players_post = build_players(post_df) if post_df is not None and len(post_df) else []
 
         # Next Gen Stats + snap share (merged into player rows)
         try:
@@ -774,9 +860,10 @@ def main():
         pweek = load_player_week(season)
         if pweek is not None:
             weekly = build_weekly(pweek, ids)
+            team_weekly = build_team_weekly(season, pbp, games_path)
             wf = DATA_DIR / f"weekly_{season}.json"
-            wf.write_text(json.dumps({"season": season, "players": weekly}, separators=(",", ":")), encoding="utf-8")
-            print(f"  wrote {wf.name}  ({wf.stat().st_size // 1024} KB)")
+            wf.write_text(json.dumps({"season": season, "players": weekly, "teams": team_weekly}, separators=(",", ":")), encoding="utf-8")
+            print(f"  wrote {wf.name}  ({wf.stat().st_size // 1024} KB, {len(team_weekly)} team weeks)")
 
         # field maps (separate file, lazy-loaded by the profile pages)
         try:
@@ -822,6 +909,7 @@ def main():
             "season": season,
             "teams": teams,
             "players": players_list,
+            "players_post": players_post,
             "standings": standings,
             "scores": scores,
             "trends": trends,

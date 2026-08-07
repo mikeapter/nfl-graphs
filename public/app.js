@@ -27,7 +27,9 @@
     collegeScope: "National", collegeClass: "FBS",
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
+    teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg",
   };
+  const TEAM_WK_SUM = ["completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "passing_first_downs", "passing_air_yards", "sacks_suffered", "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "def_sacks", "def_interceptions", "def_tds", "def_pass_defended", "penalties", "penalty_yards", "fg_made", "fg_att", "pf", "pa", "w", "l", "t", "oe", "opl", "de", "dpl"];
   const charts = {};
 
   // ---- Stat catalogs ------------------------------------------------------
@@ -217,12 +219,15 @@
     $("#team-y").addEventListener("change", (e) => { state.teamY = e.target.value; renderTeams(); });
     $("#team-rank").addEventListener("change", (e) => { state.teamRank = e.target.value; renderTeams(); });
     $("#team-set").addEventListener("change", (e) => { state.teamSet = e.target.value; state.teamHeat = TEAM_SETS[e.target.value].slice(); teamChips(); renderTeams(); });
+    $("#team-wk-from").addEventListener("change", (e) => { state.teamWkFrom = +e.target.value; if (state.teamWkFrom > (state.teamWkTo === 99 ? state.wkMax : state.teamWkTo)) { state.teamWkTo = state.teamWkFrom; $("#team-wk-to").value = state.teamWkFrom; } renderTeams(); });
+    $("#team-wk-to").addEventListener("change", (e) => { state.teamWkTo = +e.target.value === state.wkMax ? 99 : +e.target.value; if ((state.teamWkTo === 99 ? state.wkMax : state.teamWkTo) < state.teamWkFrom) { state.teamWkFrom = +e.target.value; $("#team-wk-from").value = e.target.value; } renderTeams(); });
 
     fillSelectGrouped($("#player-rank"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerRank);
     fillSelectGrouped($("#player-x"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerX);
     fillSelectGrouped($("#player-y"), PLAYER_STATS, PL_GROUP_ORDER, playerGroupOf, state.playerY);
     fillSets($("#player-set"), PLAYER_SETS, state.playerSet);
     state.playerHeat = PLAYER_SETS[state.playerSet].slice();
+    segmented("#player-seasontype", (v) => { state.playerSeasonType = v; document.querySelectorAll("#view-players .builder .ctl").forEach((c) => { if (c.querySelector("#player-wk-from")) c.style.display = v === "post" ? "none" : ""; }); renderPlayers(); });
     segmented("#player-pos", (v) => { applyPlayerDefaults(v); renderPlayers(); });
     segmented("#player-chart", (v) => { state.playerChart = v; playerControls(); renderPlayers(); });
     $("#player-rank").addEventListener("change", (e) => { state.playerRank = e.target.value; state.playerSort = null; renderPlayers(); });
@@ -321,7 +326,7 @@
     el.value = sel;
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -347,14 +352,18 @@
     const wkOpts = (last) => Array.from({ length: regMax }, (_, i) => i + 1).map((w) => `<option value="${w}">Wk ${w}</option>`).join("");
     $("#player-wk-from").innerHTML = wkOpts(); $("#player-wk-from").value = 1;
     $("#player-wk-to").innerHTML = wkOpts(); $("#player-wk-to").value = regMax;
+    state.teamWkFrom = 1; state.teamWkTo = 99; state.teamRangeKey = null;
+    $("#team-wk-from").innerHTML = wkOpts(); $("#team-wk-from").value = 1;
+    $("#team-wk-to").innerHTML = wkOpts(); $("#team-wk-to").value = regMax;
     buildSearchIndex();
     renderAll();
   }
   async function ensureWeekly() {
-    if (state.weekly[state.season]) return state.weekly[state.season];
-    try { const w = await (await fetch(`./data/weekly_${state.season}.json`)).json(); state.weekly[state.season] = w.players; return w.players; }
-    catch (e) { state.weekly[state.season] = {}; return {}; }
+    if (state.weekly[state.season]) return state.weekly[state.season].players;
+    try { const w = await (await fetch(`./data/weekly_${state.season}.json`)).json(); state.weekly[state.season] = { players: w.players || {}, teams: w.teams || {} }; return state.weekly[state.season].players; }
+    catch (e) { state.weekly[state.season] = { players: {}, teams: {} }; return {}; }
   }
+  const teamWeekly = () => (state.weekly[state.season] || {}).teams || {};
   async function ensureField() {
     if (state.field[state.season]) return state.field[state.season];
     try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = { players: f.players || {}, teams: f.teams || {} }; return state.field[state.season]; }
@@ -413,9 +422,33 @@
   const axisCommon = () => ({ axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: LINE } } });
 
   // ---- Teams / Players explorers (unchanged core) -------------------------
-  function renderTeams() {
-    const rows = state.data.teams, c = state.teamChart;
-    $("#team-hint").textContent = c === "scatter" ? "Each logo is a team · up / right = better · dashed lines = league average · click a team for its profile" : c === "bar" ? "All 32 teams ranked · best at top · click a team for its profile" : "Teams × the stats you pick · teal = better, red = worse · tap chips to add/remove columns";
+  const teamRangeActive = () => state.teamWkFrom > 1 || (state.teamWkTo !== 99 && state.teamWkTo < state.wkMax);
+  const teamRangeHi = () => state.teamWkTo === 99 ? state.wkMax : state.teamWkTo;
+  function buildRangeTeams(tw) {
+    const from = state.teamWkFrom, to = teamRangeHi();
+    return state.data.teams.map((base) => {
+      const w = tw[base.team]; if (!w) return null;
+      const idxs = w.wk.map((wk, i) => (wk >= from && wk <= to ? i : -1)).filter((i) => i >= 0);
+      if (!idxs.length) return null;
+      const syn = { team: base.team };
+      TEAM_WK_SUM.forEach((f) => { if (!w[f]) return; let s = 0, any = false; idxs.forEach((i) => { const v = w[f][i]; if (v != null) { s += v; any = true; } }); if (any) syn[f] = Math.round(s * 1000) / 1000; });
+      syn.pd = (syn.pf || 0) - (syn.pa || 0);
+      syn.off_epa = syn.opl ? +(syn.oe / syn.opl).toFixed(4) : null;
+      syn.def_epa = syn.dpl ? +(syn.de / syn.dpl).toFixed(4) : null;
+      syn.off_plays = syn.opl || 0;
+      return syn;
+    }).filter(Boolean);
+  }
+  const baseTeams = () => (teamRangeActive() && state.rangeTeams) ? state.rangeTeams : state.data.teams;
+  async function renderTeams() {
+    if (teamRangeActive()) {
+      const w = await ensureWeekly(); void w;
+      const key = `${state.season}:${state.teamWkFrom}:${teamRangeHi()}`;
+      if (state.teamRangeKey !== key) { state.rangeTeams = buildRangeTeams(teamWeekly()); state.teamRangeKey = key; }
+    }
+    const rows = baseTeams(), c = state.teamChart;
+    const rtxt = teamRangeActive() ? ` · Weeks ${state.teamWkFrom}–${teamRangeHi()}` : "";
+    $("#team-hint").textContent = (c === "scatter" ? "Each logo is a team · up / right = better · dashed lines = league average · click a team for its profile" : c === "bar" ? "All 32 teams ranked · best at top · click a team for its profile" : "Teams × the stats you pick · teal = better, red = worse · tap chips to add/remove columns") + rtxt;
     if (c === "scatter") teamScatter(rows); else if (c === "bar") teamBar(rows);
     else heatmap("team-chart-el", rows.slice(), (t) => t.team, (t) => teamMeta(t.team).name, state.teamHeat, TSTAT, "teams-heatmap");
   }
@@ -452,9 +485,10 @@
     const d = POS_DEFAULTS[pos] || POS_DEFAULTS.QB; state.playerPos = pos; state.playerRank = d.rank; state.playerX = d.x; state.playerY = d.y; state.playerSet = d.set; state.playerHeat = PLAYER_SETS[d.set].slice(); state.playerSort = null;
     $("#player-rank").value = d.rank; $("#player-x").value = d.x; $("#player-y").value = d.y; $("#player-set").value = d.set; if (state.playerChart === "heatmap") playerChips();
   }
-  const rangeActive = () => state.wkFrom > 1 || (state.wkTo !== 99 && state.wkTo < state.wkMax);
+  const isPost = () => state.playerSeasonType === "post";
+  const rangeActive = () => !isPost() && (state.wkFrom > 1 || (state.wkTo !== 99 && state.wkTo < state.wkMax));
   const rangeHi = () => state.wkTo === 99 ? state.wkMax : state.wkTo;
-  const qualFactor = () => rangeActive() ? Math.max(0.15, (rangeHi() - state.wkFrom + 1) / 17) : 1;
+  const qualFactor = () => isPost() ? 0.18 : rangeActive() ? Math.max(0.15, (rangeHi() - state.wkFrom + 1) / 17) : 1;
   function qualified(p) {
     const f = qualFactor();
     if (p.pos === "QB") return (p.attempts || 0) >= 100 * f;
@@ -475,7 +509,7 @@
       return syn;
     }).filter(Boolean);
   }
-  const basePlayers = () => (rangeActive() && state.rangePlayers) ? state.rangePlayers : state.data.players;
+  const basePlayers = () => isPost() ? (state.data.players_post || []) : (rangeActive() && state.rangePlayers) ? state.rangePlayers : state.data.players;
   function filteredPlayers() { let l = basePlayers().filter(POS_MATCH[state.playerPos] || (() => true)); if (state.playerQual) l = l.filter(qualified); return l; }
   async function renderPlayers() {
     if (rangeActive()) {
@@ -484,7 +518,7 @@
       if (state.rangeKey !== key) { state.rangePlayers = buildRangePlayers(w); state.rangeKey = key; }
     }
     const list = filteredPlayers(), c = state.playerChart;
-    const rangeTxt = rangeActive() ? ` · Weeks ${state.wkFrom}–${rangeHi()}` : "";
+    const rangeTxt = isPost() ? " · Playoffs" : rangeActive() ? ` · Weeks ${state.wkFrom}–${rangeHi()}` : "";
     $("#player-hint").textContent = (c === "bar" ? "Top 15 by the selected stat · colored by team · click a bar for the player profile" : c === "scatter" ? "Every qualified player · colored by team · click a dot for the profile" : "Top 20 players × the stats you pick · teal = better, red = worse · tap chips to change columns") + rangeTxt;
     if (c === "bar") playerBar(list); else if (c === "scatter") playerScatter(list);
     else { const primary = PSTAT[state.playerHeat[0]]; const top = list.map((p) => ({ p, v: pval(p, primary) })).filter((r) => r.v != null).sort((a, b) => primary.hi ? b.v - a.v : a.v - b.v).slice(0, 20).map((r) => r.p); heatmap("player-chart-el", top, (p) => p.player, (p) => `${p.player} (${p.team})`, state.playerHeat, PSTAT, "players-heatmap"); }
@@ -654,9 +688,10 @@
   }
   // ---- Tendencies ---------------------------------------------------------
   const TEND_METRICS = {
-    off: [["Personnel grouping", "grp"], ["Formation", "form"]],
-    def: [["Coverage", "cov"], ["Front / package", "pkg"], ["Man vs zone", "mz"], ["Defenders in box", "box"]],
+    off: [["Personnel grouping", "grp"], ["Formation", "form"], ["Play action", "pa"], ["Motion", "motion"], ["Screen", "screen"], ["RPO", "rpo"], ["No huddle", "nohuddle"]],
+    def: [["Coverage", "cov"], ["Front / package", "pkg"], ["Man vs zone", "mz"], ["Defenders in box", "box"], ["Blitz", "blitz"]],
   };
+  const YESNO = () => ["No", "Yes"];
   // metric key -> {idx into play array, legend source, labelFn}
   const TEND_META = {
     grp: { idx: 7, leg: (d) => d.grp, lab: (v) => v + " pers" },
@@ -665,6 +700,9 @@
     pkg: { idx: 9, leg: (d) => d.pkg, lab: (v) => v },
     mz: { idx: 11, leg: () => ["", "Man", "Zone"], lab: (v) => v, skipZero: true },
     box: { idx: 12, leg: null, lab: (v) => v + " in box" },
+    pa: { idx: 13, leg: YESNO, lab: (v) => v }, screen: { idx: 14, leg: YESNO, lab: (v) => v },
+    rpo: { idx: 15, leg: YESNO, lab: (v) => v }, motion: { idx: 16, leg: YESNO, lab: (v) => v },
+    nohuddle: { idx: 17, leg: YESNO, lab: (v) => v }, blitz: { idx: 18, leg: YESNO, lab: (v) => v },
   };
   const TEND_PALETTE = ["#4da3ff", "#34d399", "#e6c86e", "#f0883e", "#d1493f", "#a78bfa", "#2a9d8f", "#f472b6", "#94a3b8", "#22d3ee", "#fb7185", "#a3e635"];
   function fillTendMetric(side) {
@@ -866,7 +904,7 @@
     ? (log.wk || []).map((_, i) => (log.passing_tds ? log.passing_tds[i] || 0 : 0) + (log.rushing_tds ? log.rushing_tds[i] || 0 : 0) + (log.receiving_tds ? log.receiving_tds[i] || 0 : 0))
     : (log[stat] || []);
   function renderGameLog(p) {
-    const log = (state.weekly[state.season] || {})[p.id];
+    const log = (((state.weekly[state.season] || {}).players) || {})[p.id];
     const stat = state.logStat, label = (GAMELOG.find(([, k]) => k === stat) || [])[0] || "";
     const wk = log ? log.wk : [], vals = log ? weeklyVals(log, stat) : [];
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
