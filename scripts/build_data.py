@@ -836,6 +836,12 @@ def main():
     built = []
     college_built = []
     tend_built = []
+    careers = {}  # gsis id -> {player, pos, s: {season: {stat: val}}}
+    CAREER_FIELDS = ["games", "passing_yards", "passing_tds", "passing_epa", "attempts",
+                     "rushing_yards", "rushing_tds", "rushing_epa", "carries",
+                     "receiving_yards", "receptions", "receiving_tds", "receiving_epa", "targets",
+                     "fantasy_points_ppr", "def_sacks", "def_tackles_solo", "def_tackle_assists",
+                     "def_interceptions", "fg_made", "fg_att"]
     for season in SEASONS:
         print(f"\n== Season {season} ==")
         pbp = load_pbp(season)
@@ -854,6 +860,14 @@ def main():
         ids = {p["id"] for p in players_list if p.get("id")}
         post_df = load_player_post(season)
         players_post = build_players(post_df) if post_df is not None and len(post_df) else []
+
+        # accumulate multi-season careers
+        for p in players_list:
+            if not p.get("id"):
+                continue
+            c = careers.setdefault(p["id"], {"player": p["player"], "pos": p["pos"], "s": {}})
+            c["player"] = p["player"]; c["pos"] = p["pos"]
+            c["s"][str(season)] = {f: p[f] for f in CAREER_FIELDS if f in p}
 
         # Next Gen Stats + snap share (merged into player rows)
         try:
@@ -927,6 +941,10 @@ def main():
     if not built:
         print("FATAL: no seasons built")
         sys.exit(1)
+
+    multi = {pid: c for pid, c in careers.items() if len(c["s"]) >= 2}
+    (DATA_DIR / "careers.json").write_text(json.dumps({"players": multi}, separators=(",", ":")), encoding="utf-8")
+    print(f"\nwrote careers.json  ({len(multi)} multi-season players)")
 
     print("\n== Logos ==")
     download_logos()

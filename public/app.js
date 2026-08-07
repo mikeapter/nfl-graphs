@@ -22,7 +22,7 @@
     playerPos: "QB", playerChart: "bar", playerRank: "passing_yards", playerX: "attempts", playerY: "passing_epa", playerSet: "Passing",
     teamHeat: [], playerHeat: [], playerQual: true, playerSort: null,
     team: null, focus: null, searchIndex: {}, prevTab: "teams", profileEntity: null, logStat: "py",
-    field: {}, fieldMap: null,
+    field: {}, fieldMap: null, careers: null, careerStat: null,
     college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
     collegeScope: "National", collegeClass: "FBS",
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
@@ -294,6 +294,7 @@
     $("#prof-save").addEventListener("click", exportCard);
     $("#prof-compare").addEventListener("change", (e) => { const en = state.profileEntity; if (en && e.target.value) go(`#/compare/${en.type === "team" ? "t" : "p"}/${encodeURIComponent(en.id)}/${encodeURIComponent(e.target.value)}${seasonSuffix()}`); });
     $("#prof-log-stat").addEventListener("change", (e) => { state.logStat = e.target.value; if (state.profileEntity && state.profileEntity.type === "player") renderGameLog(findPlayer(state.profileEntity.id)); });
+    $("#prof-career-stat").addEventListener("change", (e) => { state.careerStat = e.target.value; const en = state.profileEntity; if (en && en.type === "player" && state.careers && state.careers[en.id]) drawCareer(findPlayer(en.id), state.careers[en.id]); });
     $("#cmp-a").addEventListener("change", cmpPick); $("#cmp-b").addEventListener("change", cmpPick);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && state.profileEntity) go(`#/${state.prevTab}${seasonSuffix()}`); });
 
@@ -388,6 +389,11 @@
     if (state.field[state.season]) return state.field[state.season];
     try { const f = await (await fetch(`./data/field_${state.season}.json`)).json(); state.field[state.season] = { players: f.players || {}, teams: f.teams || {} }; return state.field[state.season]; }
     catch (e) { state.field[state.season] = { players: {}, teams: {} }; return state.field[state.season]; }
+  }
+  async function ensureCareers() {
+    if (state.careers) return state.careers;
+    try { const c = await (await fetch("./data/careers.json")).json(); state.careers = c.players; return c.players; }
+    catch (e) { state.careers = {}; return {}; }
   }
   async function ensureCollege() {
     if (state.college[state.season]) return state.college[state.season];
@@ -829,7 +835,7 @@
     state.prevTab = "college";
     // college profile reuses the profile view but only the radar chart
     $("#prof-compare-ctl").hidden = true; $("#prof-save").style.display = "none";
-    $("#prof-log-ctl").style.display = "none"; $("#prof-chart2-wrap").style.display = "none"; $("#prof-field-section").hidden = true;
+    $("#prof-log-ctl").style.display = "none"; $("#prof-chart2-wrap").style.display = "none"; $("#prof-field-section").hidden = true; $("#prof-career-section").hidden = true;
     if (!p) { $("#profile-body").innerHTML = `<p class="hint" style="padding:20px">Player not found for ${state.season}.</p>`; $(".prof-grid").style.display = "none"; activate("profile", null); return; }
     $(".prof-grid").style.display = ""; $("#prof-chart1").style.display = "none";
     const b = bucket(p.pos), t = cteam(p.team);
@@ -925,6 +931,43 @@
     radarChart("prof-radar", [{ name: p.player, color: color(p.team), vals: keys.map((k) => Math.round((rankPct(peers.map((x) => pval(x, PSTAT[k])), pval(p, PSTAT[k]), PSTAT[k].hi) || { pct: 0 }).pct * 100)) }], keys.map((k) => PSTAT[k].l), "Percentile vs position");
     await ensureWeekly(); renderGameLog(p);
     renderField(p);
+    renderCareer(p);
+  }
+  const CAREER_TREND = {
+    QB: [["Passing yards", "passing_yards"], ["Passing TDs", "passing_tds"], ["Passing EPA", "passing_epa"], ["Fantasy PPR", "fantasy_points_ppr"]],
+    RB: [["Rushing yards", "rushing_yards"], ["Rushing TDs", "rushing_tds"], ["Rushing EPA", "rushing_epa"], ["Fantasy PPR", "fantasy_points_ppr"]],
+    WR: [["Receiving yards", "receiving_yards"], ["Receptions", "receptions"], ["Receiving TDs", "receiving_tds"], ["Receiving EPA", "receiving_epa"], ["Targets", "targets"], ["Fantasy PPR", "fantasy_points_ppr"]],
+    TE: [["Receiving yards", "receiving_yards"], ["Receptions", "receptions"], ["Receiving TDs", "receiving_tds"], ["Receiving EPA", "receiving_epa"], ["Targets", "targets"], ["Fantasy PPR", "fantasy_points_ppr"]],
+    DEF: [["Sacks", "def_sacks"], ["Tackles", "__tackles"], ["Interceptions", "def_interceptions"]],
+    K: [["FG made", "fg_made"], ["FG attempts", "fg_att"]],
+  };
+  const careerVal = (sd, k) => k === "__tackles" ? (sd.def_tackles_solo || 0) + (sd.def_tackle_assists || 0) : (sd[k] == null ? null : sd[k]);
+  async function renderCareer(p) {
+    const sec = $("#prof-career-section");
+    const careers = await ensureCareers();
+    const c = careers[p.id];
+    if (!c || Object.keys(c.s).length < 2) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const trend = CAREER_TREND[bucket(p.pos)] || CAREER_TREND.WR;
+    $("#prof-career-stat").innerHTML = trend.map(([l, k]) => `<option value="${k}">${l}</option>`).join("");
+    if (!trend.find((t) => t[1] === state.careerStat)) state.careerStat = trend[0][1];
+    $("#prof-career-stat").value = state.careerStat;
+    drawCareer(p, c);
+  }
+  function drawCareer(p, c) {
+    const seasons = Object.keys(c.s).sort();
+    const trend = CAREER_TREND[bucket(p.pos)] || CAREER_TREND.WR;
+    const label = (trend.find((t) => t[1] === state.careerStat) || trend[0])[0];
+    const vals = seasons.map((s) => careerVal(c.s[s], state.careerStat));
+    ec("prof-career").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-${p.player}-career-${state.careerStat}`),
+      title: { text: `${label} by season`, left: 8, top: 4, textStyle: { color: TEXT, fontSize: 13, fontWeight: 600 } },
+      grid: { left: 48, right: 20, top: 40, bottom: 28 },
+      tooltip: { trigger: "axis", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT } },
+      xAxis: { ...axisCommon(), type: "category", data: seasons },
+      yAxis: { ...axisCommon(), type: "value" },
+      series: [{ type: "bar", data: vals, itemStyle: { color: color(p.team), borderRadius: [4, 4, 0, 0] }, barMaxWidth: 60, label: { show: true, position: "top", color: AXIS, formatter: (o) => o.value == null ? "" : (+o.value).toLocaleString() } }],
+    }, true);
   }
   const weeklyVals = (log, stat) => stat === "__td"
     ? (log.wk || []).map((_, i) => (log.passing_tds ? log.passing_tds[i] || 0 : 0) + (log.rushing_tds ? log.rushing_tds[i] || 0 : 0) + (log.receiving_tds ? log.receiving_tds[i] || 0 : 0))
@@ -1080,7 +1123,7 @@
   }
 
   function showTeamPage(abbr) {
-    resetProfileChrome();
+    resetProfileChrome(); $("#prof-career-section").hidden = true;
     const t = state.data.teams.find((x) => x.team === abbr);
     state.profileEntity = t ? { type: "team", id: abbr } : null;
     if (!t) { $("#profile-body").innerHTML = '<p class="hint" style="padding:20px">No data for this team.</p>'; activate("profile", null); return; }
