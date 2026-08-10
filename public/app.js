@@ -27,7 +27,7 @@
     collegeScope: "National", collegeClass: "FBS",
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
-    teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg",
+    teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
   };
   const TEAM_WK_SUM = ["completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "passing_first_downs", "passing_air_yards", "sacks_suffered", "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "def_sacks", "def_interceptions", "def_tds", "def_pass_defended", "penalties", "penalty_yards", "fg_made", "fg_att", "pf", "pa", "w", "l", "t", "oe", "opl", "de", "dpl"];
   const charts = {};
@@ -253,6 +253,7 @@
     $("#team-y").addEventListener("change", (e) => { state.teamY = e.target.value; renderTeams(); });
     $("#team-rank").addEventListener("change", (e) => { state.teamRank = e.target.value; renderTeams(); });
     $("#team-set").addEventListener("change", (e) => { state.teamSet = e.target.value; state.teamHeat = TEAM_SETS[e.target.value].slice(); teamChips(); renderTeams(); });
+    segmented("#team-seasontype", (v) => { state.teamSeasonType = v; document.querySelectorAll("#view-teams .builder .ctl").forEach((c) => { if (c.querySelector("#team-wk-from")) c.style.display = v === "post" ? "none" : ""; }); renderTeams(); });
     $("#team-wk-from").addEventListener("change", (e) => { state.teamWkFrom = +e.target.value; if (state.teamWkFrom > (state.teamWkTo === 99 ? state.wkMax : state.teamWkTo)) { state.teamWkTo = state.teamWkFrom; $("#team-wk-to").value = state.teamWkFrom; } renderTeams(); });
     $("#team-wk-to").addEventListener("change", (e) => { state.teamWkTo = +e.target.value === state.wkMax ? 99 : +e.target.value; if ((state.teamWkTo === 99 ? state.wkMax : state.teamWkTo) < state.teamWkFrom) { state.teamWkFrom = +e.target.value; $("#team-wk-from").value = e.target.value; } renderTeams(); });
 
@@ -462,7 +463,8 @@
   const axisCommon = () => ({ axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: LINE } } });
 
   // ---- Teams / Players explorers (unchanged core) -------------------------
-  const teamRangeActive = () => state.teamWkFrom > 1 || (state.teamWkTo !== 99 && state.teamWkTo < state.wkMax);
+  const isTeamPost = () => state.teamSeasonType === "post";
+  const teamRangeActive = () => !isTeamPost() && (state.teamWkFrom > 1 || (state.teamWkTo !== 99 && state.teamWkTo < state.wkMax));
   const teamRangeHi = () => state.teamWkTo === 99 ? state.wkMax : state.teamWkTo;
   function buildRangeTeams(tw) {
     const from = state.teamWkFrom, to = teamRangeHi();
@@ -479,7 +481,7 @@
       return syn;
     }).filter(Boolean);
   }
-  const baseTeams = () => (teamRangeActive() && state.rangeTeams) ? state.rangeTeams : state.data.teams;
+  const baseTeams = () => isTeamPost() ? (state.data.teams_post || []) : (teamRangeActive() && state.rangeTeams) ? state.rangeTeams : state.data.teams;
   async function renderTeams() {
     if (teamRangeActive()) {
       const w = await ensureWeekly(); void w;
@@ -487,7 +489,7 @@
       if (state.teamRangeKey !== key) { state.rangeTeams = buildRangeTeams(teamWeekly()); state.teamRangeKey = key; }
     }
     const rows = baseTeams(), c = state.teamChart;
-    const rtxt = teamRangeActive() ? ` · Weeks ${state.teamWkFrom}–${teamRangeHi()}` : "";
+    const rtxt = isTeamPost() ? " · Playoffs" : teamRangeActive() ? ` · Weeks ${state.teamWkFrom}–${teamRangeHi()}` : "";
     $("#team-hint").textContent = (c === "scatter" ? "Each logo is a team · up / right = better · dashed lines = league average · click a team for its profile" : c === "bar" ? "All 32 teams ranked · best at top · click a team for its profile" : "Teams × the stats you pick · teal = better, red = worse · tap chips to add/remove columns") + rtxt;
     if (c === "scatter") teamScatter(rows); else if (c === "bar") teamBar(rows);
     else heatmap("team-chart-el", rows.slice(), (t) => t.team, (t) => teamMeta(t.team).name, state.teamHeat, TSTAT, "teams-heatmap");

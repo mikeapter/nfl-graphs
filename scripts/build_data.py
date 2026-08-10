@@ -551,6 +551,27 @@ WEEKLY_SUM = [
 WEEKLY_AVG = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"]  # rate stats
 
 
+def load_team_post(season: int):
+    p = fetch(f"{REL}/stats_team/stats_team_post_{season}.csv", CACHE_DIR / f"team_post_{season}.csv")
+    return pd.read_csv(p, low_memory=False) if p else None
+
+
+def postseason_record(games_path: Path, season: int) -> dict:
+    rec = {a: {"w": 0, "l": 0, "t": 0, "pf": 0, "pa": 0} for a in TEAMS}
+    with open(games_path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if int(r["season"]) != season or r["game_type"] == "REG" or r["home_score"] == "":
+                continue
+            h, a = r["home_team"], r["away_team"]
+            hs, as_ = int(r["home_score"]), int(r["away_score"])
+            if h not in rec or a not in rec:
+                continue
+            rec[h]["pf"] += hs; rec[h]["pa"] += as_; rec[a]["pf"] += as_; rec[a]["pa"] += hs
+            if hs > as_: rec[h]["w"] += 1; rec[a]["l"] += 1
+            elif as_ > hs: rec[a]["w"] += 1; rec[h]["l"] += 1
+    return {a: d for a, d in rec.items() if d["w"] + d["l"] > 0}
+
+
 def load_team_week(season: int):
     p = fetch(f"{REL}/stats_team/stats_team_week_{season}.csv", CACHE_DIR / f"team_week_{season}.csv")
     return pd.read_csv(p, low_memory=False) if p else None
@@ -720,9 +741,9 @@ def _num(v, nd=2):
     return int(f) if f.is_integer() else round(f, nd)
 
 
-def build_teams(pbp: pd.DataFrame, team_df, team_record: dict) -> list[dict]:
+def build_teams(pbp: pd.DataFrame, team_df, team_record: dict, stype: str = "REG") -> list[dict]:
     """One rich row per team: EPA per play + selected season totals + record."""
-    df = pbp[(pbp["season_type"] == "REG") & (pbp["epa"].notna())]
+    df = pbp[(pbp["season_type"] == stype) & (pbp["epa"].notna())]
     df = df[(df["pass"] == 1) | (df["rush"] == 1)]
     off = df.groupby("posteam")["epa"].agg(["mean", "count"])
     dfn = df.groupby("defteam")["epa"].mean()
@@ -914,6 +935,9 @@ def main():
 
         team_record = {row["team"]: row for lst in standings.values() for row in lst}
         teams = build_teams(pbp, team_df, team_record)
+        post_rec = postseason_record(games_path, season)
+        teams_post = build_teams(pbp, load_team_post(season), post_rec, "POST") if post_rec else []
+        teams_post = [t for t in teams_post if t["team"] in post_rec]
         players_list = build_players(players)
         ids = {p["id"] for p in players_list if p.get("id")}
         # situational: red-zone + 3rd down (teams) and red-zone opportunities (players)
@@ -996,6 +1020,7 @@ def main():
         payload = {
             "season": season,
             "teams": teams,
+            "teams_post": teams_post,
             "players": players_list,
             "players_post": players_post,
             "standings": standings,
