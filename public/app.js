@@ -254,6 +254,10 @@
     window.addEventListener("resize", () => Object.values(charts).forEach((c) => c.resize()));
     setToggleIcon();
     $("#theme-toggle").addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
+    $("#glossary-btn").addEventListener("click", openGlossary);
+    $("#glossary-close").addEventListener("click", closeGlossary);
+    $("#glossary-modal").addEventListener("click", (e) => { if (e.target.id === "glossary-modal") closeGlossary(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeGlossary(); });
 
     // Builders — axis options grouped (team: Offense/Defense/Overall)
     fillSelectGrouped($("#team-x"), TEAM_STATS, TEAM_GROUP_ORDER, teamGroupOf, state.teamX);
@@ -439,6 +443,56 @@
     if (state.season !== state.meta.latest) p.set("s", state.season);
     return location.origin + location.pathname + "#/players?" + p.toString();
   }
+  const GLOSSARY = [
+    ["Efficiency (the core idea)", [
+      ["EPA / play", "Expected Points Added per play. Every situation (down, distance, field position) has an expected point value; EPA is how much a play changed it. <b>+0.1 EPA/play on offense is elite; -0.1 on defense is elite.</b> It rewards moving the chains and scoring, punishes sacks and turnovers — a far better quality signal than raw yards."],
+      ["Success rate", "Share of plays with positive EPA — i.e. plays that helped. Measures consistency, where EPA/play measures magnitude. A team can have high EPA on a few explosives but a low success rate (boom-or-bust)."],
+      ["Net EPA", "Offense EPA/play minus defense EPA/play — a one-number summary of overall team quality."],
+    ]],
+    ["Passing", [
+      ["CPOE", "Completion Percentage Over Expected. Given each throw's depth, direction and pressure, the model estimates completion odds; CPOE is actual minus expected. <b>Isolates accuracy</b> from a QB's supporting cast and scheme. +3% is very good."],
+      ["aDOT", "Average Depth of Target — how far downfield, in yards past the line, a passer throws (or a receiver is targeted). Low aDOT + high volume = a checkdown/screen game; high aDOT = a vertical one."],
+      ["Air yards", "Total yards a pass travels in the air before the catch (or incompletion). Separates yards earned downfield from yards-after-catch."],
+      ["Passing EPA", "Total EPA generated on dropbacks — the cumulative version of EPA/play, so volume matters."],
+    ]],
+    ["Rushing & receiving", [
+      ["YAC", "Yards After Catch — yards gained after the ball arrives. High YAC points to run-after-catch skill or a scheme that creates space."],
+      ["Target share", "Percent of a team's targets that went to a player — the cleanest usage/opportunity stat for receivers."],
+      ["Rushing EPA", "Total EPA on carries. Note goal-line backs and short-yardage roles can suppress per-play efficiency even on 'good' runs."],
+      ["Red-zone touches", "Carries + targets inside the opponent's 20. Where fantasy points and TDs are won."],
+    ]],
+    ["Next Gen Stats (NGS)", [
+      ["Time to throw", "Seconds from snap to release. Fast can mean a quick-game scheme; slow can mean a gunslinger or a leaky line."],
+      ["Separation", "Average yards of cushion a receiver has from the nearest defender at the catch point."],
+      ["Efficiency (rush)", "NGS ball-carrier efficiency — total distance traveled vs. straight-line distance. Higher = more east-west running (not always good)."],
+    ]],
+    ["Tendencies", [
+      ["Personnel (11, 12, 21…)", "Two digits: number of running backs, then tight ends, on the field. <b>11</b> = 1 RB, 1 TE, 3 WR (the modern spread base). <b>12</b> = 1 RB, 2 TE (heavier). The remaining players are WRs."],
+      ["Coverage (Cover 1/2/3…)", "How many deep safeties and the shell behind them. Cover 1 = man with one deep safety; Cover 2 = two deep; Cover 3 = three deep zones. Reveals a defense's identity."],
+      ["Light / heavy box", "Defenders in the box (near the line). Light boxes invite the run; heavy boxes dare you to throw."],
+      ["Play-action / RPO", "Play-action fakes a handoff on a called pass; an RPO (run-pass option) lets the QB hand off or throw based on a defender's reaction."],
+    ]],
+    ["Fantasy", [
+      ["PPR / Half / Standard", "Points Per Reception scoring. PPR gives 1 pt per catch, Half-PPR 0.5, Standard 0. The choice reshuffles WR/RB value — possession receivers rise in PPR."],
+      ["Boom % / Bust %", "Share of a player's games above a strong (boom) or below a weak (bust) points threshold for their position — a read on week-to-week reliability."],
+      ["Floor / Ceiling", "The player's typical bad-week and good-week outcomes (low and high percentiles), not just their average."],
+    ]],
+    ["Reading the charts", [
+      ["Scatter quadrants", "On team scatters, up and to the right is better; dashed lines mark the league average, so the top-right quadrant is above average on both axes."],
+      ["Heatmaps (z-scores)", "Colors compare each team/player to the league: teal = better than average, red = worse, by how many standard deviations. It's relative, not raw."],
+      ["Qualified only", "Filters out tiny samples (e.g. a QB with 20 attempts) so leaderboards aren't skewed by noise. Toggle it off to see everyone."],
+    ]],
+  ];
+  let glossaryBuilt = false;
+  function openGlossary() {
+    if (!glossaryBuilt) {
+      $("#glossary-body").innerHTML = GLOSSARY.map(([sec, items]) => `<section class="gl-sec"><h3>${sec}</h3>${items.map(([t, d]) => `<div class="gl-item"><dt>${t}</dt><dd>${d}</dd></div>`).join("")}</section>`).join("");
+      glossaryBuilt = true;
+    }
+    $("#glossary-modal").hidden = false; document.body.style.overflow = "hidden";
+  }
+  function closeGlossary() { $("#glossary-modal").hidden = true; document.body.style.overflow = ""; }
+
   async function copyShare(url, btn) {
     const restore = btn.textContent;
     try { await navigator.clipboard.writeText(url); btn.textContent = "✓ Link copied"; }

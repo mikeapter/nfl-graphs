@@ -35,6 +35,7 @@
         <span>Season</span>
         <select id="season-select" aria-label="Season"></select>
       </label>
+      <button id="glossary-btn" class="glossary-btn" type="button" aria-label="How to read the stats">ⓘ Glossary</button>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme"></button>
     </div>
   </header>
@@ -292,6 +293,17 @@
     <span>Built by <a href="https://twitter.com/mikeapter" target="_blank" rel="noopener">@mikeapter</a>
       · Data: nflverse · Logos: ESPN · Not affiliated with the NFL</span>
   </footer>
+
+  <div class="modal-overlay" id="glossary-modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
+      <div class="modal-head">
+        <h2 id="glossary-title">How to read this</h2>
+        <button class="modal-close" id="glossary-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <p class="modal-intro">Plain-English definitions for the advanced stats used across the site. Everything is computed from public nflverse play-by-play — no proprietary black boxes.</p>
+      <div id="glossary-body"></div>
+    </div>
+  </div>
 
   <script src="./vendor/echarts.min.js"></script>
   <script src="./app.js"></script>
