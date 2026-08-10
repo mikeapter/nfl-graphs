@@ -5,6 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0f17" />
   <title>NFL Graphs</title>
+  <meta name="description" content="Interactive NFL & college football stats — team EPA, player explorers, tendencies, field maps, red-zone splits, and more. Free, from nflverse data." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="NFL Graphs" />
+  <meta property="og:title" content="NFL Graphs — interactive NFL & college stats" />
+  <meta property="og:description" content="Team EPA scatters, player explorers, personnel/coverage tendencies, field maps, red-zone splits, career trends, and college — free, from nflverse data." />
+  <meta property="og:url" content="https://mikeapter.github.io/nfl-graphs/" />
+  <meta property="og:image" content="https://mikeapter.github.io/nfl-graphs/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="NFL Graphs — interactive NFL & college stats" />
+  <meta name="twitter:description" content="Team EPA, player explorers, tendencies, field maps, red-zone splits & college — free, from nflverse data." />
+  <meta name="twitter:image" content="https://mikeapter.github.io/nfl-graphs/og.png" />
   <link rel="preconnect" href="https://a.espncdn.com" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -91,6 +104,7 @@
             <button class="seg active" data-type="bar">Bars</button>
             <button class="seg" data-type="scatter">Scatter</button>
             <button class="seg" data-type="heatmap">Heatmap</button>
+            <button class="seg" data-type="archetype">Archetypes</button>
           </div>
           <label class="ctl" data-role="rank"><span>Rank by</span><select id="player-rank"></select></label>
           <label class="ctl" data-role="x"><span>X axis</span><select id="player-x"></select></label>
@@ -161,6 +175,10 @@
       <div class="view-head">
         <h2>College Players</h2>
         <div class="builder">
+          <div class="segmented" id="college-mode">
+            <button class="seg active" data-mode="players">Players</button>
+            <button class="seg" data-mode="teams">Teams</button>
+          </div>
           <div class="segmented" id="college-cat">
             <button class="seg active" data-cat="Passing">Passing</button>
             <button class="seg" data-cat="Rushing">Rushing</button>

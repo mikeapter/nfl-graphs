@@ -235,12 +235,58 @@ def load_cfb(season: int):
     p = fetch(f"{CFB_URL}/player_stats/parquet/player_stats_{season}.parquet", CACHE_DIR / f"cfb_{season}.parquet")
     if not p:
         return None
-    cols = ["game_id", "team", "completion_player_id", "completion_player", "completion_yds",
+    cols = ["game_id", "team", "opponent", "completion_player_id", "completion_player", "completion_yds",
             "incompletion_player_id", "interception_thrown_player_id",
             "rush_player_id", "rush_player", "rush_yds",
             "reception_player_id", "reception_player", "reception_yds", "target_player_id",
             "touchdown_player_id"]
     return pd.read_parquet(p, columns=cols)
+
+
+def load_cfb_schedule(season: int):
+    p = fetch(f"{CFB_URL}/schedules/parquet/cfb_schedules_{season}.parquet", CACHE_DIR / f"cfb_sched_{season}.parquet")
+    return pd.read_parquet(p) if p else None
+
+
+def build_college_teams(df, season: int) -> list[dict]:
+    """College team stats: record + points (from schedules) and offensive/defensive
+    yards (from play data)."""
+    teaminfo = load_cfb_teaminfo(season)
+    from collections import defaultdict
+    rec = defaultdict(lambda: {"w": 0, "l": 0, "pf": 0, "pa": 0, "g": 0})
+    sched = load_cfb_schedule(season)
+    if sched is not None:
+        s = sched[sched["completed"] == True] if "completed" in sched.columns else sched
+        for r in s.itertuples(index=False):
+            h, a = getattr(r, "home_team", None), getattr(r, "away_team", None)
+            hp, ap = getattr(r, "home_points", None), getattr(r, "away_points", None)
+            if not isinstance(h, str) or not isinstance(a, str) or pd.isna(hp) or pd.isna(ap):
+                continue
+            hp, ap = int(hp), int(ap)
+            for team, pf, pa in ((h, hp, ap), (a, ap, hp)):
+                d = rec[team]; d["pf"] += pf; d["pa"] += pa; d["g"] += 1
+                if pf > pa: d["w"] += 1
+                elif pa > pf: d["l"] += 1
+
+    off = df.groupby("team").agg(pass_yds=("completion_yds", "sum"), rush_yds=("rush_yds", "sum")).to_dict("index")
+    dfn = df.groupby("opponent").agg(dp=("completion_yds", "sum"), dr=("rush_yds", "sum")).to_dict("index")
+
+    out = []
+    for team, d in rec.items():
+        if d["g"] == 0:
+            continue
+        ti = teaminfo.get(team, {})
+        o = off.get(team, {}); de = dfn.get(team, {})
+        py = int(o.get("pass_yds", 0) or 0); ry = int(o.get("rush_yds", 0) or 0)
+        dpy = int(de.get("dp", 0) or 0); dry = int(de.get("dr", 0) or 0)
+        out.append({
+            "team": team, "conf": ti.get("conf", ""), "class": ti.get("class", ""),
+            "logo": ti.get("logo"), "color": ti.get("color", "#4da3ff"),
+            "w": d["w"], "l": d["l"], "pf": d["pf"], "pa": d["pa"], "pd": d["pf"] - d["pa"], "g": d["g"],
+            "pass_yds": py, "rush_yds": ry, "total_yds": py + ry,
+            "def_pass_yds": dpy, "def_rush_yds": dry, "def_yds": dpy + dry,
+        })
+    return out
 
 
 def load_cfb_rosters(season: int):
@@ -992,9 +1038,10 @@ def main():
             cfb = load_cfb(season)
             if cfb is not None and len(cfb):
                 college, cteams = build_college(cfb, season)
+                cteam_stats = build_college_teams(cfb, season)
                 cf = DATA_DIR / f"college_{season}.json"
-                cf.write_text(json.dumps({"season": season, "players": college, "teams": cteams}, separators=(",", ":")), encoding="utf-8")
-                print(f"  wrote {cf.name}  ({cf.stat().st_size // 1024} KB, {len(college)} players, {len(cteams)} teams)")
+                cf.write_text(json.dumps({"season": season, "players": college, "teams": cteams, "cteams": cteam_stats}, separators=(",", ":")), encoding="utf-8")
+                print(f"  wrote {cf.name}  ({cf.stat().st_size // 1024} KB, {len(college)} players, {len(cteam_stats)} team stats)")
                 college_built.append(season)
         except Exception as e:  # noqa: BLE001
             print(f"  !! college skipped: {e}")
