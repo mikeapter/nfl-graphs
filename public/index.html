@@ -53,6 +53,7 @@
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
     <button class="tab" data-view="college" role="tab">College</button>
     <button class="tab" data-view="tendencies" role="tab">Tendencies</button>
+    <button class="tab" data-view="fantasy" role="tab">Fantasy</button>
   </nav>
 
   <main id="main">
@@ -241,6 +242,35 @@
         <p class="hint" id="tend-hint"></p>
       </div>
       <div class="chart-wrap"><div id="tend-chart" class="chart tall"></div></div>
+    </section>
+
+    <!-- Fantasy -->
+    <section class="view" id="view-fantasy">
+      <div class="view-head">
+        <h2>Fantasy</h2>
+        <div class="builder">
+          <div class="segmented" id="fan-view">
+            <button class="seg active" data-fv="rankings">Rankings</button>
+            <button class="seg" data-fv="matchups">Matchups</button>
+          </div>
+          <div class="segmented" id="fan-pos">
+            <button class="seg active" data-fpos="QB">QB</button>
+            <button class="seg" data-fpos="RB">RB</button>
+            <button class="seg" data-fpos="WR">WR</button>
+            <button class="seg" data-fpos="TE">TE</button>
+            <button class="seg" data-fpos="FLEX">FLEX</button>
+          </div>
+          <div class="segmented" id="fan-scoring">
+            <button class="seg" data-sc="std">Standard</button>
+            <button class="seg" data-sc="half">Half-PPR</button>
+            <button class="seg active" data-sc="ppr">PPR</button>
+          </div>
+          <label class="ctl chk"><input type="checkbox" id="fan-passtd6" /><span>6-pt pass TD</span></label>
+        </div>
+        <p class="hint" id="fan-hint"></p>
+      </div>
+      <div class="chart-wrap"><div id="fan-chart" class="chart tall"></div></div>
+      <div class="table-wrap"><table id="fan-table"></table></div>
     </section>
   </main>
 

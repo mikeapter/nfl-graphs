@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["teams", "players", "standings", "trends", "college", "tendencies"];
+  const TABS = ["teams", "players", "standings", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -26,6 +26,7 @@
     college: {}, collegeCat: "Passing", collegeConf: "", collegeRank: "pyd", collegeFilter: "", collegeSort: null,
     collegeScope: "National", collegeClass: "FBS", collegeMode: "players", collegeTeamRank: "pd", collegeTeamSort: null,
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
+    fanView: "rankings", fanPos: "QB", fanScoring: "ppr", fanPassTd6: false, fanSort: null,
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
     teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
   };
@@ -314,6 +315,13 @@
     $("#tend-ptype").addEventListener("change", (e) => { state.tendPtype = e.target.value; renderTendencies(); });
     $("#tend-game").addEventListener("change", (e) => { state.tendGame = e.target.value; renderTendencies(); });
 
+    // Fantasy builder
+    segmented("#fan-view", (v) => { state.fanView = v; renderFantasy(); });
+    segmented("#fan-pos", (v) => { state.fanPos = v; state.fanSort = null; renderFantasy(); });
+    segmented("#fan-scoring", (v) => { state.fanScoring = v; renderFantasy(); });
+    $("#fan-passtd6").addEventListener("change", (e) => { state.fanPassTd6 = e.target.checked; renderFantasy(); });
+    $("#fan-table").addEventListener("click", onFanSort);
+
     // Profile / compare controls
     $("#prof-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
     $("#cmp-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
@@ -365,7 +373,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -375,7 +383,7 @@
     el.value = sel;
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : t === "heatmap" ? ["set"] : []); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -935,6 +943,93 @@
       series,
     }, true);
   }
+
+  // ---- Fantasy ------------------------------------------------------------
+  const FAN_REC = { std: 0, half: 0.5, ppr: 1 };
+  const FAN_POS_MATCH = { QB: (p) => p.pos === "QB", RB: (p) => p.pos === "RB" || p.pos === "FB", WR: (p) => p.pos === "WR", TE: (p) => p.pos === "TE", FLEX: (p) => ["RB", "FB", "WR", "TE"].includes(p.pos) };
+  const FAN_BOOM = { QB: [25, 15], RB: [20, 8], WR: [20, 8], TE: [15, 5], FLEX: [20, 8] };
+  function fanSettings() {
+    return { passYd: 0.04, passTd: state.fanPassTd6 ? 6 : 4, int: -2, rushYd: 0.1, recYd: 0.1, rec: FAN_REC[state.fanScoring], fum: -2 };
+  }
+  function fanWeekPts(w, i, s) {
+    const g = (f) => (w[f] ? (w[f][i] || 0) : 0);
+    return g("passing_yards") * s.passYd + g("passing_tds") * s.passTd + g("passing_interceptions") * s.int
+      + g("rushing_yards") * s.rushYd + g("rushing_tds") * 6
+      + g("receiving_yards") * s.recYd + g("receiving_tds") * 6 + g("receptions") * s.rec
+      + g("fumbles_lost_total") * s.fum;
+  }
+  async function renderFantasy() {
+    const weekly = await ensureWeekly();
+    const s = fanSettings(), scLabel = { std: "Standard", half: "Half-PPR", ppr: "PPR" }[state.fanScoring] + (state.fanPassTd6 ? " · 6pt pass TD" : "");
+    if (state.fanView === "matchups") return fantasyMatchups(weekly, s, scLabel);
+    // per-player aggregation
+    const [boomT, bustT] = FAN_BOOM[state.fanPos];
+    const rows = state.data.players.filter(FAN_POS_MATCH[state.fanPos]).map((p) => {
+      const w = weekly[p.id]; if (!w) return null;
+      const pts = w.wk.map((_, i) => fanWeekPts(w, i, s));
+      const g = pts.length; if (!g) return null;
+      const tot = pts.reduce((a, b) => a + b, 0), avg = tot / g;
+      const sorted = pts.slice().sort((a, b) => a - b);
+      const boom = pts.filter((x) => x >= boomT).length, bust = pts.filter((x) => x < bustT).length;
+      const sd = Math.sqrt(pts.reduce((a, b) => a + (b - avg) ** 2, 0) / g);
+      return { p, g, tot, avg, floor: sorted[0], ceil: sorted[g - 1], boom: 100 * boom / g, bust: 100 * bust / g, sd };
+    }).filter(Boolean);
+    const sort = state.fanSort || { key: "avg", dir: -1 };
+    rows.sort((a, b) => (a[sort.key] - b[sort.key]) * sort.dir);
+    $("#fan-hint").textContent = `${rows.length} ${state.fanPos} · ${state.season} · ${scLabel} · boom = ${boomT}+ pts, bust = <${bustT}`;
+    // chart: top 15 by PPG, floor–ceiling range with avg
+    const top = rows.slice().sort((a, b) => b.avg - a.avg).slice(0, 15).reverse();
+    ec("fan-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-fantasy-${state.fanPos}-${state.fanScoring}-${state.season}`),
+      grid: { left: 140, right: 46, top: 30, bottom: 24 },
+      legend: { data: ["Floor→Ceiling", "Avg"], top: 6, left: "center", textStyle: { color: AXIS } },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => { const r = top[ps[0].dataIndex]; return `${r.p.player}<br/>Avg ${r.avg.toFixed(1)}<br/>Floor ${r.floor.toFixed(1)} · Ceiling ${r.ceil.toFixed(1)}<br/>Boom ${r.boom.toFixed(0)}% · Bust ${r.bust.toFixed(0)}%`; } },
+      xAxis: { ...axisCommon(), type: "value" },
+      yAxis: { type: "category", data: top.map((r) => r.p.player), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 11 } },
+      series: [
+        { name: "Floor→Ceiling", type: "bar", stack: "r", itemStyle: { color: "transparent" }, data: top.map((r) => r.floor), silent: true },
+        { name: "range", type: "bar", stack: "r", itemStyle: { color: color2(0.28) }, barMaxWidth: 16, data: top.map((r) => r.ceil - r.floor), tooltip: { show: false } },
+        { name: "Avg", type: "scatter", symbolSize: 10, data: top.map((r) => [r.avg, r.p.player]), itemStyle: { color: (o) => color(top[o.dataIndex].p.team) } },
+      ],
+    }, true);
+    // table
+    const cols = [["Total", "tot", 1], ["PPG", "avg", 1], ["Floor", "floor", 1], ["Ceiling", "ceil", 1], ["Boom%", "boom", 0], ["Bust%", "bust", 0], ["StdDev", "sd", 1]];
+    const arrow = (k) => sort.key === k ? `<span class="sort-arrow">${sort.dir < 0 ? "▾" : "▴"}</span>` : "";
+    const head = `<thead><tr><th class="rank">#</th><th>Player</th><th>Tm</th><th>Pos</th><th class="sortable" data-k="g">G ${arrow("g")}</th>${cols.map(([l, k]) => `<th class="sortable" data-k="${k}">${l} ${arrow(k)}</th>`).join("")}</tr></thead>`;
+    const body = rows.map((r, i) => `<tr data-id="${r.p.id}"><td class="rank">${i + 1}</td><td class="pname">${r.p.player}</td><td class="pteam">${r.p.team}</td><td class="pteam">${r.p.pos}</td><td>${r.g}</td>${cols.map(([, k, d]) => `<td>${r[k].toFixed(d)}${k === "boom" || k === "bust" ? "%" : ""}</td>`).join("")}</tr>`).join("");
+    $("#fan-table").innerHTML = head + `<tbody>${body}</tbody>`;
+  }
+  function fantasyMatchups(weekly, s, scLabel) {
+    const pos = state.fanPos === "FLEX" ? "FLEX" : state.fanPos;
+    const posOf = FAN_POS_MATCH[pos];
+    const allow = {}, weeksSeen = {};
+    state.data.players.filter(posOf).forEach((p) => {
+      const w = weekly[p.id]; if (!w) return;
+      w.wk.forEach((wk, i) => { const opp = w.opp ? w.opp[i] : ""; if (!opp || !state.meta.teams[opp]) return; allow[opp] = (allow[opp] || 0) + fanWeekPts(w, i, s); (weeksSeen[opp] = weeksSeen[opp] || new Set()).add(wk); });
+    });
+    const rows = Object.keys(allow).map((t) => ({ team: t, ppg: allow[t] / (weeksSeen[t] ? weeksSeen[t].size : 1) })).sort((a, b) => b.ppg - a.ppg);
+    $("#fan-hint").textContent = `Fantasy points allowed to ${pos} per game · ${state.season} · ${scLabel} · higher = easier matchup`;
+    const bar = rows.slice().reverse();
+    ec("fan-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-fantasy-matchups-${pos}-${state.fanScoring}-${state.season}`),
+      grid: { left: 54, right: 56, top: 26, bottom: 20 },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => `${teamMeta(ps[0].name).name}<br/>${ps[0].value.toFixed(1)} ${pos} pts/game allowed` },
+      xAxis: { ...axisCommon(), type: "value" },
+      yAxis: { type: "category", data: bar.map((r) => r.team), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 10 } },
+      series: [{ type: "bar", data: bar.map((r) => ({ value: +r.ppg.toFixed(1), name: r.team, itemStyle: { color: color(r.team), borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: "right", color: AXIS, formatter: (o) => o.value.toFixed(1) }, barMaxWidth: 13 }],
+    }, true);
+    const head = `<thead><tr><th class="rank">#</th><th>Defense</th><th>${pos} pts/game allowed</th></tr></thead>`;
+    const body = rows.map((r, i) => `<tr data-team="${r.team}"><td class="rank">${i + 1}</td><td class="pname ct-cell"><img class="ct-logo" src="${logo(r.team)}" alt=""/>${teamMeta(r.team).name}</td><td>${r.ppg.toFixed(1)}</td></tr>`).join("");
+    $("#fan-table").innerHTML = head + `<tbody>${body}</tbody>`;
+  }
+  function onFanSort(e) {
+    const th = e.target.closest("th.sortable");
+    if (th) { const k = th.dataset.k, cur = state.fanSort; const hi = !["bust", "sd"].includes(k); state.fanSort = (cur && cur.key === k) ? { key: k, dir: -cur.dir } : { key: k, dir: hi ? -1 : 1 }; renderFantasy(); return; }
+    const tr = e.target.closest("tbody tr");
+    if (tr && tr.dataset.id) { const pl = findPlayer(tr.dataset.id); if (pl) go(`#/player/${encodeURIComponent(pl.id)}${seasonSuffix()}`); }
+    else if (tr && tr.dataset.team) go(`#/team/${tr.dataset.team}${seasonSuffix()}`);
+  }
+  const color2 = (a) => `rgba(77,163,255,${a})`;
 
   const CPROFILE = {
     QB: ["pyd", "ptd", "int", "cmp_pct", "ypa", "games"],

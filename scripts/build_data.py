@@ -592,7 +592,7 @@ WEEKLY_SUM = [
     "fantasy_points", "fantasy_points_ppr",
     "def_tackles_solo", "def_tackle_assists", "def_sacks", "def_qb_hits",
     "def_tackles_for_loss", "def_interceptions", "def_pass_defended", "def_fumbles_forced",
-    "fg_made", "fg_att", "pat_made",
+    "fg_made", "fg_att", "pat_made", "fumbles_lost_total",
 ]
 WEEKLY_AVG = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"]  # rate stats
 
@@ -740,6 +740,8 @@ def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
     for pid, grp in df.groupby("player_id"):
         grp = grp.sort_values("week")
         rec = {"wk": [int(w) for w in grp["week"]]}
+        if "opponent_team" in grp:
+            rec["opp"] = [o if isinstance(o, str) else "" for o in grp["opponent_team"]]
         for f in WEEKLY_SUM:
             if f in grp:
                 col = [_num(v) or 0 for v in grp[f]]
