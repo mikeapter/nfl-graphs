@@ -544,6 +544,9 @@ WEEKLY_SUM = [
     "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa",
     "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch",
     "fantasy_points", "fantasy_points_ppr",
+    "def_tackles_solo", "def_tackle_assists", "def_sacks", "def_qb_hits",
+    "def_tackles_for_loss", "def_interceptions", "def_pass_defended", "def_fumbles_forced",
+    "fg_made", "fg_att", "pat_made",
 ]
 WEEKLY_AVG = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"]  # rate stats
 
@@ -672,9 +675,11 @@ def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
         rec = {"wk": [int(w) for w in grp["week"]]}
         for f in WEEKLY_SUM:
             if f in grp:
-                rec[f] = [_num(v) or 0 for v in grp[f]]
+                col = [_num(v) or 0 for v in grp[f]]
+                if any(col):  # skip all-zero fields to keep the file small
+                    rec[f] = col
         for f in WEEKLY_AVG:
-            if f in grp:
+            if f in grp and grp[f].notna().any():
                 rec[f] = [_num(v) for v in grp[f]]
         out[pid] = rec
     return out

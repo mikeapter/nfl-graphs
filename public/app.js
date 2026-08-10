@@ -908,8 +908,13 @@
     WR: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
     TE: ["snap_pct", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay"],
   };
-  const GAMELOG = [["Passing yards", "passing_yards"], ["Rushing yards", "rushing_yards"], ["Receiving yards", "receiving_yards"], ["Receptions", "receptions"], ["Total TDs", "__td"], ["Fantasy PPR", "fantasy_points_ppr"]];
-  const WEEKLY_SUM_KEYS = ["completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "passing_air_yards", "passing_first_downs", "sacks_suffered", "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa", "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch", "fantasy_points", "fantasy_points_ppr"];
+  const GAMELOG_OFF = [["Passing yards", "passing_yards"], ["Rushing yards", "rushing_yards"], ["Receiving yards", "receiving_yards"], ["Receptions", "receptions"], ["Total TDs", "__td"], ["Fantasy PPR", "fantasy_points_ppr"]];
+  const GAMELOG_SETS = {
+    DEF: [["Tackles", "__tackles"], ["Sacks", "def_sacks"], ["Tackles for loss", "def_tackles_for_loss"], ["QB hits", "def_qb_hits"], ["Interceptions", "def_interceptions"]],
+    K: [["FG made", "fg_made"], ["FG attempts", "fg_att"], ["XP made", "pat_made"]],
+  };
+  const gamelogFor = (b) => GAMELOG_SETS[b] || GAMELOG_OFF;
+  const WEEKLY_SUM_KEYS = ["completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions", "passing_epa", "passing_air_yards", "passing_first_downs", "sacks_suffered", "carries", "rushing_yards", "rushing_tds", "rushing_epa", "rushing_first_downs", "targets", "receptions", "receiving_yards", "receiving_tds", "receiving_epa", "receiving_first_downs", "receiving_air_yards", "receiving_yards_after_catch", "fantasy_points", "fantasy_points_ppr", "def_tackles_solo", "def_tackle_assists", "def_sacks", "def_qb_hits", "def_tackles_for_loss", "def_interceptions", "def_pass_defended", "def_fumbles_forced", "fg_made", "fg_att", "pat_made"];
   const WEEKLY_AVG_KEYS = ["passing_cpoe", "target_share", "air_yards_share", "wopr", "racr"];
   const NGS_KEYS = ["snap_pct", "ngs_ttt", "ngs_iay", "ngs_agg", "ngs_cpoe", "ngs_ayts", "ngs_rating", "ngs_xcomp", "ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay", "ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked", "ngs_rpoe"];
 
@@ -939,8 +944,9 @@
     $("#prof-compare-ctl").hidden = false;
     // charts
     $("#prof-log-ctl").style.display = ""; $("#prof-chart2-wrap").style.display = "none";
-    $("#prof-log-stat").innerHTML = GAMELOG.map(([l, k]) => `<option value="${k}">${l}</option>`).join("");
-    state.logStat = b === "QB" ? "passing_yards" : b === "RB" ? "rushing_yards" : "receiving_yards"; $("#prof-log-stat").value = state.logStat;
+    const glset = gamelogFor(b);
+    $("#prof-log-stat").innerHTML = glset.map(([l, k]) => `<option value="${k}">${l}</option>`).join("");
+    state.logStat = glset[0][1]; $("#prof-log-stat").value = state.logStat;
     activate("profile", null);
     radarChart("prof-radar", [{ name: p.player, color: color(p.team), vals: keys.map((k) => Math.round((rankPct(peers.map((x) => pval(x, PSTAT[k])), pval(p, PSTAT[k]), PSTAT[k].hi) || { pct: 0 }).pct * 100)) }], keys.map((k) => PSTAT[k].l), "Percentile vs position");
     await ensureWeekly(); renderGameLog(p);
@@ -985,10 +991,12 @@
   }
   const weeklyVals = (log, stat) => stat === "__td"
     ? (log.wk || []).map((_, i) => (log.passing_tds ? log.passing_tds[i] || 0 : 0) + (log.rushing_tds ? log.rushing_tds[i] || 0 : 0) + (log.receiving_tds ? log.receiving_tds[i] || 0 : 0))
+    : stat === "__tackles"
+    ? (log.wk || []).map((_, i) => (log.def_tackles_solo ? log.def_tackles_solo[i] || 0 : 0) + (log.def_tackle_assists ? log.def_tackle_assists[i] || 0 : 0))
     : (log[stat] || []);
   function renderGameLog(p) {
     const log = (((state.weekly[state.season] || {}).players) || {})[p.id];
-    const stat = state.logStat, label = (GAMELOG.find(([, k]) => k === stat) || [])[0] || "";
+    const stat = state.logStat, label = (gamelogFor(bucket(p.pos)).find(([, k]) => k === stat) || [])[0] || "";
     const wk = log ? log.wk : [], vals = log ? weeklyVals(log, stat) : [];
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     ec("prof-chart1").setOption({
