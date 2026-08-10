@@ -283,6 +283,8 @@
     $("#player-y").addEventListener("change", (e) => { state.playerY = e.target.value; renderPlayers(); });
     $("#player-set").addEventListener("change", (e) => { state.playerSet = e.target.value; state.playerHeat = PLAYER_SETS[e.target.value].slice(); playerChips(); renderPlayers(); });
     $("#player-qual").addEventListener("change", (e) => { state.playerQual = e.target.checked; renderPlayers(); });
+    $("#team-share").addEventListener("click", (e) => copyShare(teamShareURL(), e.currentTarget));
+    $("#player-share").addEventListener("click", (e) => copyShare(playerShareURL(), e.currentTarget));
     $("#player-wk-from").addEventListener("change", (e) => { state.wkFrom = +e.target.value; if (state.wkFrom > (state.wkTo === 99 ? state.wkMax : state.wkTo)) { state.wkTo = state.wkFrom; $("#player-wk-to").value = state.wkFrom; } renderPlayers(); });
     $("#player-wk-to").addEventListener("change", (e) => { state.wkTo = +e.target.value === state.wkMax ? 99 : +e.target.value; if ((state.wkTo === 99 ? state.wkMax : state.wkTo) < state.wkFrom) { state.wkFrom = +e.target.value; $("#player-wk-from").value = e.target.value; } renderPlayers(); });
 
@@ -353,7 +355,7 @@
     if (seg[0] === "cplayer") return { view: "cplayer", id: seg[1], season };
     if (seg[0] === "team") return { view: "team", id: seg[1], season };
     if (seg[0] === "compare") return { view: "compare", ctype: seg[1], a: seg[2], b: seg[3], season };
-    return { view: seg[0] || "home", season };
+    return { view: seg[0] || "home", season, q: Object.fromEntries(new URLSearchParams(query || "")) };
   }
   async function router() {
     const r = parseHash();
@@ -365,7 +367,83 @@
     if (r.view === "team") return showTeamPage(r.id);
     if (r.view === "compare") return showComparePage(r.ctype, r.a, r.b);
     state.profileEntity = null;
-    showTab(TABS.includes(r.view) ? r.view : "home");
+    const view = TABS.includes(r.view) ? r.view : "home";
+    if (view === "teams") { applyTeamParams(r.q); }
+    if (view === "players") { applyPlayerParams(r.q); }
+    showTab(view);
+    if (view === "teams") renderTeams();
+    if (view === "players") renderPlayers();
+  }
+  const setSeg = (sel, attr, val) => $$(sel + " .seg").forEach((b) => b.classList.toggle("active", b.dataset[attr] === val));
+  function applyTeamParams(q) {
+    if (!q) return;
+    if (q.tc) state.teamChart = q.tc;
+    if (q.tx && TSTAT[q.tx]) state.teamX = q.tx;
+    if (q.ty && TSTAT[q.ty]) state.teamY = q.ty;
+    if (q.tr && TSTAT[q.tr]) state.teamRank = q.tr;
+    if (q.ts && TEAM_SETS[q.ts]) { state.teamSet = q.ts; state.teamHeat = TEAM_SETS[q.ts].slice(); }
+    if (q.th) state.teamHeat = q.th.split(".").filter((k) => TSTAT[k]);
+    state.teamSeasonType = q.tst === "post" ? "post" : "reg";
+    state.teamWkFrom = q.twf ? +q.twf : 1;
+    state.teamWkTo = q.twt ? +q.twt : 99;
+    setSeg("#team-seasontype", "st", state.teamSeasonType);
+    setSeg("#team-chart", "type", state.teamChart);
+    $("#team-x").value = state.teamX; $("#team-y").value = state.teamY;
+    $("#team-rank").value = state.teamRank; $("#team-set").value = state.teamSet;
+    $("#team-wk-from").value = state.teamWkFrom; $("#team-wk-to").value = state.teamWkTo === 99 ? state.wkMax : state.teamWkTo;
+    document.querySelectorAll("#view-teams .builder .ctl").forEach((c) => { if (c.querySelector("#team-wk-from")) c.style.display = state.teamSeasonType === "post" ? "none" : ""; });
+    teamControls();
+  }
+  function applyPlayerParams(q) {
+    if (!q) return;
+    if (q.pp && POS_MATCH[q.pp]) applyPlayerDefaults(q.pp);
+    if (q.pc) state.playerChart = q.pc;
+    if (q.pr && PSTAT[q.pr]) state.playerRank = q.pr;
+    if (q.px && PSTAT[q.px]) state.playerX = q.px;
+    if (q.py && PSTAT[q.py]) state.playerY = q.py;
+    if (q.ps && PLAYER_SETS[q.ps]) { state.playerSet = q.ps; state.playerHeat = PLAYER_SETS[q.ps].slice(); }
+    if (q.ph) state.playerHeat = q.ph.split(".").filter((k) => PSTAT[k]);
+    if (q.pq != null) state.playerQual = q.pq === "1";
+    state.playerSeasonType = q.pst === "post" ? "post" : "reg";
+    state.wkFrom = q.pwf ? +q.pwf : 1;
+    state.wkTo = q.pwt ? +q.pwt : 99;
+    setSeg("#player-seasontype", "st", state.playerSeasonType);
+    setSeg("#player-pos", "pos", state.playerPos);
+    setSeg("#player-chart", "type", state.playerChart);
+    $("#player-rank").value = state.playerRank; $("#player-x").value = state.playerX; $("#player-y").value = state.playerY;
+    $("#player-set").value = state.playerSet; $("#player-qual").checked = state.playerQual;
+    $("#player-wk-from").value = state.wkFrom; $("#player-wk-to").value = state.wkTo === 99 ? state.wkMax : state.wkTo;
+    document.querySelectorAll("#view-players .builder .ctl").forEach((c) => { if (c.querySelector("#player-wk-from")) c.style.display = state.playerSeasonType === "post" ? "none" : ""; });
+    playerControls();
+  }
+  function teamShareURL() {
+    const p = new URLSearchParams();
+    p.set("tc", state.teamChart);
+    if (state.teamChart === "scatter") { p.set("tx", state.teamX); p.set("ty", state.teamY); }
+    else if (state.teamChart === "bar") p.set("tr", state.teamRank);
+    else { p.set("ts", state.teamSet); p.set("th", state.teamHeat.join(".")); }
+    if (state.teamSeasonType === "post") p.set("tst", "post");
+    else { if (state.teamWkFrom > 1) p.set("twf", state.teamWkFrom); if (state.teamWkTo !== 99) p.set("twt", state.teamWkTo); }
+    if (state.season !== state.meta.latest) p.set("s", state.season);
+    return location.origin + location.pathname + "#/teams?" + p.toString();
+  }
+  function playerShareURL() {
+    const p = new URLSearchParams();
+    p.set("pp", state.playerPos); p.set("pc", state.playerChart);
+    if (state.playerChart === "bar") p.set("pr", state.playerRank);
+    else if (state.playerChart === "scatter") { p.set("px", state.playerX); p.set("py", state.playerY); }
+    else if (state.playerChart === "heatmap") { p.set("ps", state.playerSet); p.set("ph", state.playerHeat.join(".")); }
+    if (!state.playerQual) p.set("pq", "0");
+    if (state.playerSeasonType === "post") p.set("pst", "post");
+    else { if (state.wkFrom > 1) p.set("pwf", state.wkFrom); if (state.wkTo !== 99) p.set("pwt", state.wkTo); }
+    if (state.season !== state.meta.latest) p.set("s", state.season);
+    return location.origin + location.pathname + "#/players?" + p.toString();
+  }
+  async function copyShare(url, btn) {
+    const restore = btn.textContent;
+    try { await navigator.clipboard.writeText(url); btn.textContent = "✓ Link copied"; }
+    catch (e) { location.hash = url.split("#")[1]; btn.textContent = "✓ Link in address bar"; }
+    setTimeout(() => { btn.textContent = restore; }, 1600);
   }
   function activate(name, tab) {
     $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));

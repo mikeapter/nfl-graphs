@@ -89,6 +89,12 @@ select {
 }
 .save-btn:hover { filter: brightness(1.06); }
 .save-btn:disabled { opacity: .6; cursor: default; }
+.share-btn {
+  align-self: flex-end; background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px;
+  font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.share-btn:hover { border-color: var(--accent); color: var(--accent); }
 .view-head.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Home */
