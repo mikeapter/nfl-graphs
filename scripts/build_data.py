@@ -120,7 +120,9 @@ def load_pbp(season: int) -> pd.DataFrame | None:
     cols = ["season", "week", "season_type", "posteam", "defteam", "pass", "rush", "epa",
             "pass_attempt", "rush_attempt", "pass_location", "air_yards", "complete_pass",
             "yards_gained", "run_location", "run_gap",
-            "passer_player_id", "receiver_player_id", "rusher_player_id"]
+            "passer_player_id", "receiver_player_id", "rusher_player_id",
+            "yardline_100", "down", "third_down_converted", "third_down_failed",
+            "drive", "game_id", "fixed_drive_result", "pass_touchdown", "rush_touchdown", "td_player_id"]
     return pd.read_parquet(p, columns=cols)
 
 
@@ -609,6 +611,57 @@ def build_team_weekly(season: int, pbp: pd.DataFrame, games_path: Path) -> dict:
     return res
 
 
+def build_situational(pbp: pd.DataFrame):
+    """Team red-zone TD% & 3rd-down conversion% (offense + defense), and per-player
+    red-zone opportunities/TDs. Returns (team_map, player_map)."""
+    df = pbp[pbp["season_type"] == "REG"]
+
+    def conv_pct(gcol):
+        g = df.groupby(gcol).agg(c=("third_down_converted", "sum"), f=("third_down_failed", "sum"))
+        return {t: round(100 * r.c / (r.c + r.f), 1) for t, r in g.iterrows() if (r.c + r.f) > 0}
+    off3, def3 = conv_pct("posteam"), conv_pct("defteam")
+
+    rz = df[df["yardline_100"].notna()]
+    dr = rz.groupby(["game_id", "posteam", "drive"]).agg(minyl=("yardline_100", "min"),
+                                                         res=("fixed_drive_result", "first"),
+                                                         dteam=("defteam", "first")).reset_index()
+    dr = dr[dr["minyl"] <= 20]
+    def rz_pct(gcol):
+        g = dr.groupby(gcol).agg(trips=("res", "size"), td=("res", lambda s: (s == "Touchdown").sum()))
+        return {t: (round(100 * r.td / r.trips, 1), int(r.trips)) for t, r in g.iterrows() if r.trips > 0}
+    off_rz, def_rz = rz_pct("posteam"), rz_pct("dteam")
+
+    team_map = {}
+    for t in TEAMS:
+        rec = {}
+        if t in off3: rec["td3"] = off3[t]
+        if t in def3: rec["def3"] = def3[t]
+        if t in off_rz: rec["rztd"], rec["rztrips"] = off_rz[t]
+        if t in def_rz: rec["def_rztd"] = def_rz[t][0]
+        if rec: team_map[t] = rec
+
+    inside = df[df["yardline_100"] <= 20]
+    def gsize(sub, col):
+        return sub.groupby(col).size().to_dict()
+    tgt = gsize(inside[inside["pass_attempt"] == 1], "receiver_player_id")
+    rec = gsize(inside[inside["complete_pass"] == 1], "receiver_player_id")
+    car = gsize(inside[inside["rush_attempt"] == 1], "rusher_player_id")
+    td = gsize(inside[(inside["pass_touchdown"] == 1) | (inside["rush_touchdown"] == 1)], "td_player_id")
+    ids = set(tgt) | set(car) | set(td)
+    player_map = {}
+    for pid in ids:
+        if not isinstance(pid, str):
+            continue
+        rec_d = {}
+        if tgt.get(pid): rec_d["rz_tgt"] = int(tgt[pid])
+        if rec.get(pid): rec_d["rz_rec"] = int(rec[pid])
+        if car.get(pid): rec_d["rz_car"] = int(car[pid])
+        if td.get(pid): rec_d["rz_td"] = int(td[pid])
+        if rec_d:
+            player_map[pid] = rec_d
+    return team_map, player_map
+
+
 def build_weekly(pweek: pd.DataFrame, ids: set) -> dict:
     """Per-player weekly (regular-season) stats — full raw field set so the client
     can rebuild any stat over a chosen week range, plus power the game log."""
@@ -858,6 +911,17 @@ def main():
         teams = build_teams(pbp, team_df, team_record)
         players_list = build_players(players)
         ids = {p["id"] for p in players_list if p.get("id")}
+        # situational: red-zone + 3rd down (teams) and red-zone opportunities (players)
+        try:
+            sit_teams, sit_players = build_situational(pbp)
+            for t in teams:
+                if t["team"] in sit_teams:
+                    t.update(sit_teams[t["team"]])
+            for p in players_list:
+                if p.get("id") in sit_players:
+                    p.update(sit_players[p["id"]])
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! situational skipped: {e}")
         post_df = load_player_post(season)
         players_post = build_players(post_df) if post_df is not None and len(post_df) else []
 

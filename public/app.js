@@ -62,11 +62,18 @@
     { k: "penalties", l: "Penalties", hi: false },
     { k: "penalty_yards", l: "Penalty yards", hi: false },
     { k: "fg_made", l: "Field goals made", hi: true },
+    // situational
+    { k: "td3", l: "3rd down conv %", hi: true, d: 1 },
+    { k: "rztd", l: "Red-zone TD %", hi: true, d: 1 },
+    { k: "rztrips", l: "Red-zone trips", hi: true },
+    { k: "def3", l: "3rd down allowed %", hi: false, d: 1 },
+    { k: "def_rztd", l: "Red-zone TD allowed %", hi: false, d: 1 },
   ];
   const TEAM_SETS = {
     Offense: ["off_epa", "ppg", "ypp", "passing_yards", "rushing_yards", "total_tds"],
     Defense: ["def_epa", "papg", "def_sacks", "def_interceptions", "def_pass_defended", "def_tds"],
     Overall: ["net_epa", "pd", "w", "ppg", "papg", "first_downs"],
+    Situational: ["td3", "rztd", "rztrips", "def3", "def_rztd"],
   };
   const PLAYER_STATS = [
     { k: "passing_yards", l: "Passing yards", hi: true },
@@ -153,6 +160,12 @@
     { k: "fg_long", l: "Longest FG", hi: true },
     { k: "pat_made", l: "XP made", hi: true },
     { k: "k_points", l: "Points (kicking)", hi: true, fn: (p) => (p.fg_made || 0) * 3 + (p.pat_made || 0) },
+    // red zone
+    { k: "rz_tgt", l: "Red-zone targets", hi: true },
+    { k: "rz_rec", l: "Red-zone receptions", hi: true },
+    { k: "rz_car", l: "Red-zone carries", hi: true },
+    { k: "rz_touch", l: "Red-zone touches", hi: true, fn: (p) => (p.rz_car || 0) + (p.rz_tgt || 0) },
+    { k: "rz_td", l: "Red-zone TDs", hi: true },
   ];
   const PLAYER_SETS = {
     Passing: ["passing_yards", "passing_tds", "passing_epa", "cmp_pct", "ypa", "passing_cpoe"],
@@ -162,6 +175,7 @@
     "Next Gen · pass": ["ngs_cpoe", "ngs_ttt", "ngs_agg", "ngs_ayts", "ngs_rating", "ngs_xcomp"],
     "Next Gen · rec": ["ngs_sep", "ngs_cush", "ngs_yacoe", "ngs_airshare", "ngs_tay", "snap_pct"],
     "Next Gen · rush": ["ngs_ryoe", "ngs_ryoe_att", "ngs_eff", "ngs_ttl", "ngs_stacked", "snap_pct"],
+    "Red zone": ["rz_tgt", "rz_car", "rz_td", "rz_touch", "rz_rec"],
     Defense: ["def_sacks", "tackles", "def_tackles_for_loss", "def_qb_hits", "def_interceptions", "def_pass_defended"],
     Kicking: ["fg_made", "fg_pct", "fg_50plus", "fg_long", "k_points"],
   };
@@ -169,15 +183,15 @@
   const PSTAT = Object.fromEntries(PLAYER_STATS.map((s) => [s.k, s]));
 
   // Stat groups for the dropdowns (offense/defense separation, etc.)
-  const TEAM_DEF = new Set(["def_epa", "papg", "pa", "def_sacks", "def_interceptions", "def_pass_defended", "def_tds"]);
+  const TEAM_DEF = new Set(["def_epa", "papg", "pa", "def_sacks", "def_interceptions", "def_pass_defended", "def_tds", "def3", "def_rztd"]);
   const TEAM_OTHER = new Set(["net_epa", "pd", "w", "penalties", "penalty_yards", "fg_made"]);
   const teamGroupOf = (k) => TEAM_DEF.has(k) ? "Defense" : TEAM_OTHER.has(k) ? "Overall" : "Offense";
   const TEAM_GROUP_ORDER = ["Offense", "Defense", "Overall"];
   const PL_PASS = new Set(["passing_yards", "pass_ypg", "passing_tds", "passing_epa", "passing_cpoe", "cmp_pct", "ypa", "td_pct", "int_pct", "passing_interceptions", "attempts", "completions", "passing_first_downs", "passing_air_yards", "sacks_suffered"]);
   const PL_RUSH = new Set(["carries", "rushing_yards", "rush_ypg", "rushing_tds", "rushing_epa", "ypc", "rushing_first_downs"]);
   const PL_REC = new Set(["targets", "receptions", "receiving_yards", "rec_ypg", "receiving_tds", "receiving_epa", "ypr", "catch_pct", "ypt", "adot", "receiving_first_downs", "target_share", "air_yards_share", "wopr", "racr", "receiving_yards_after_catch"]);
-  const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : (k.startsWith("def_") || k === "tackles") ? "Defense" : (k.startsWith("fg_") || k.startsWith("pat_") || k === "k_points") ? "Kicking" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
-  const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Overall", "Next Gen", "Defense", "Kicking"];
+  const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : k.startsWith("rz_") ? "Red zone" : (k.startsWith("def_") || k === "tackles") ? "Defense" : (k.startsWith("fg_") || k.startsWith("pat_") || k === "k_points") ? "Kicking" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
+  const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Red zone", "Overall", "Next Gen", "Defense", "Kicking"];
 
   // College stat catalog (reliable cfbfastR aggregates — no TDs in the source)
   const CSTAT = {
