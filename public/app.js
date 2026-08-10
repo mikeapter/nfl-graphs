@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["teams", "players", "standings", "trends", "college", "tendencies", "fantasy"];
+  const TABS = ["home", "teams", "players", "standings", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -353,7 +353,7 @@
     if (seg[0] === "cplayer") return { view: "cplayer", id: seg[1], season };
     if (seg[0] === "team") return { view: "team", id: seg[1], season };
     if (seg[0] === "compare") return { view: "compare", ctype: seg[1], a: seg[2], b: seg[3], season };
-    return { view: seg[0] || "teams", season };
+    return { view: seg[0] || "home", season };
   }
   async function router() {
     const r = parseHash();
@@ -365,7 +365,7 @@
     if (r.view === "team") return showTeamPage(r.id);
     if (r.view === "compare") return showComparePage(r.ctype, r.a, r.b);
     state.profileEntity = null;
-    showTab(TABS.includes(r.view) ? r.view : "teams");
+    showTab(TABS.includes(r.view) ? r.view : "home");
   }
   function activate(name, tab) {
     $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
@@ -373,7 +373,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -503,6 +503,35 @@
     }).filter(Boolean);
   }
   const baseTeams = () => isTeamPost() ? (state.data.teams_post || []) : (teamRangeActive() && state.rangeTeams) ? state.rangeTeams : state.data.teams;
+
+  // ---- Home ---------------------------------------------------------------
+  const HOME_CARDS = [
+    ["🏈", "Teams", "EPA scatter, rankings, heatmaps, week-range & playoffs", "teams"],
+    ["📊", "Players", "Any stat, any chart — plus archetypes & week-range", "players"],
+    ["🎯", "Tendencies", "Personnel, coverages, fronts & play-action by situation", "tendencies"],
+    ["🔮", "Fantasy", "Custom scoring, boom/bust & defense matchups", "fantasy"],
+    ["🎓", "College", "1,900+ players & 700+ teams, national or by conference", "college"],
+    ["🏆", "Standings", "Division standings, weekly scores & team trends", "standings"],
+  ];
+  function renderHome() {
+    $("#home-cards").innerHTML = HOME_CARDS.map(([ic, t, s, v]) => `<div class="home-card" data-view="${v}"><div class="hc-ico">${ic}</div><div class="hc-title">${t}</div><div class="hc-sub">${s}</div></div>`).join("");
+    $("#home-cards").querySelectorAll(".home-card").forEach((c) => c.addEventListener("click", () => go(`#/${c.dataset.view}${seasonSuffix()}`)));
+
+    const teamsBy = (k, hi) => state.data.teams.map((t) => ({ t, v: pval(t, TSTAT[k]) })).filter((r) => r.v != null).sort((a, b) => hi ? b.v - a.v : a.v - b.v).slice(0, 5);
+    const playersBy = (stat, filt) => state.data.players.filter(filt).map((p) => ({ p, v: pval(p, PSTAT[stat]) })).filter((r) => r.v != null).sort((a, b) => b.v - a.v).slice(0, 5);
+    const teamCard = (title, rows, s) => `<div class="lead-card"><h3>${title}</h3>${rows.map((r) => `<div class="lead-row" data-team="${r.t.team}"><img src="${logo(r.t.team)}" alt=""/><div class="lr-name">${teamMeta(r.t.team).name}</div><div class="lr-val">${pfmt(r.v, TSTAT[s])}</div></div>`).join("")}</div>`;
+    const playerCard = (title, rows, stat) => `<div class="lead-card"><h3>${title}</h3>${rows.map((r) => `<div class="lead-row" data-id="${r.p.id}"><img src="${r.p.face || logo(r.p.team)}" alt="" onerror="this.src='${logo(r.p.team)}'"/><div><div class="lr-name">${r.p.player}</div><div class="lr-sub">${r.p.pos} · ${r.p.team}</div></div><div class="lr-val">${pfmt(r.v, PSTAT[stat])}</div></div>`).join("")}</div>`;
+    $("#home-leaders").innerHTML = [
+      teamCard(`Best offense · ${state.season}`, teamsBy("off_epa", true), "off_epa"),
+      teamCard("Best defense", teamsBy("def_epa", false), "def_epa"),
+      playerCard("Passing yards", playersBy("passing_yards", (p) => p.pos === "QB"), "passing_yards"),
+      playerCard("Rushing yards", playersBy("rushing_yards", (p) => p.pos === "RB" || p.pos === "FB"), "rushing_yards"),
+      playerCard("Receiving yards", playersBy("receiving_yards", (p) => p.pos === "WR" || p.pos === "TE"), "receiving_yards"),
+      playerCard("Fantasy points (PPR)", playersBy("fantasy_points_ppr", (p) => ["QB", "RB", "WR", "TE", "FB"].includes(p.pos)), "fantasy_points_ppr"),
+    ].join("");
+    $("#home-leaders").querySelectorAll(".lead-row").forEach((r) => r.addEventListener("click", () => { if (r.dataset.team) go(`#/team/${r.dataset.team}${seasonSuffix()}`); else if (r.dataset.id) go(`#/player/${encodeURIComponent(r.dataset.id)}${seasonSuffix()}`); }));
+  }
+
   async function renderTeams() {
     if (teamRangeActive()) {
       const w = await ensureWeekly(); void w;

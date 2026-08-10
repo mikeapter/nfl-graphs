@@ -91,6 +91,27 @@ select {
 .save-btn:disabled { opacity: .6; cursor: default; }
 .view-head.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* Home */
+.home-hero { padding: 20px 4px 8px; }
+.home-hero h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; max-width: 720px; }
+.home-hero p { margin: 0; color: var(--muted); font-size: 15px; max-width: 720px; line-height: 1.5; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 18px 0; }
+.home-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; }
+.home-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.home-card .hc-ico { font-size: 22px; }
+.home-card .hc-title { font-weight: 700; font-size: 15px; margin: 6px 0 2px; }
+.home-card .hc-sub { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.home-leaders { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.lead-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.lead-card h3 { margin: 0; padding: 11px 14px; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.lead-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 9px; padding: 8px 14px; border-top: 1px solid var(--line); cursor: pointer; }
+.lead-row:first-of-type { border-top: none; }
+.lead-row:hover { background: var(--panel-2); }
+.lead-row img { width: 22px; height: 22px; object-fit: contain; border-radius: 4px; }
+.lead-row .lr-name { font-weight: 600; font-size: 13.5px; }
+.lead-row .lr-sub { color: var(--muted); font-size: 11.5px; }
+.lead-row .lr-val { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13.5px; }
+
 /* Heatmap stat chips */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
 .chips[hidden] { display: none; }

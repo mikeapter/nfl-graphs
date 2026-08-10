@@ -47,7 +47,8 @@
   </div>
 
   <nav class="tabs" id="tabs" role="tablist">
-    <button class="tab active" data-view="teams" role="tab">Teams</button>
+    <button class="tab active" data-view="home" role="tab">Home</button>
+    <button class="tab" data-view="teams" role="tab">Teams</button>
     <button class="tab" data-view="players" role="tab">Players</button>
     <button class="tab" data-view="standings" role="tab">Standings &amp; Scores</button>
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
@@ -57,8 +58,18 @@
   </nav>
 
   <main id="main">
+    <!-- Home -->
+    <section class="view active" id="view-home">
+      <div class="home-hero">
+        <h1>Every angle on the NFL &amp; college football</h1>
+        <p>Team EPA, player explorers, personnel &amp; coverage tendencies, field maps, red-zone splits, career trends, a full fantasy suite, and college — free, from <a href="https://github.com/nflverse" target="_blank" rel="noopener">nflverse</a> data.</p>
+      </div>
+      <div class="home-cards" id="home-cards"></div>
+      <div class="home-leaders" id="home-leaders"></div>
+    </section>
+
     <!-- Teams explorer -->
-    <section class="view active" id="view-teams">
+    <section class="view" id="view-teams">
       <div class="view-head">
         <h2>Team Explorer</h2>
         <div class="builder">
