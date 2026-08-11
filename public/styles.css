@@ -314,6 +314,22 @@ tbody tr.hl:hover { background: color-mix(in srgb, var(--accent) 30%, transparen
 .con-plink:hover { text-decoration: underline; }
 .con-more { text-align: center; color: var(--muted); font-size: 12.5px; padding: 12px; }
 #con-find { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+/* team cap view */
+.capteam-head { display: flex; align-items: center; gap: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin-bottom: 12px; }
+.capteam-logo { width: 54px; height: 54px; flex: none; }
+.capteam-stats { display: flex; flex-wrap: wrap; gap: 22px; }
+.capteam-stats > div { display: flex; flex-direction: column; gap: 1px; }
+.capteam-stats span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.capteam-stats b { font-size: 20px; }
+.capteam-stats em { color: var(--muted); font-size: 12px; font-style: normal; }
+.cap-breakdown { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin-bottom: 16px; }
+.cap-bd-title { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.cap-bar { display: grid; grid-template-columns: 46px 1fr auto; align-items: center; gap: 10px; margin: 6px 0; }
+.cap-pos { font-size: 12px; font-weight: 700; color: var(--muted); }
+.cap-track { background: var(--panel-2); border-radius: 6px; height: 16px; overflow: hidden; }
+.cap-fill { height: 100%; border-radius: 6px; min-width: 2px; }
+.cap-amt { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cap-amt em { color: var(--muted); font-style: normal; font-size: 11px; }
 
 .divisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .divcard { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
