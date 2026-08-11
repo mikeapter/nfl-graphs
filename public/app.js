@@ -19,7 +19,7 @@
   const state = {
     meta: null, season: null, data: null, weekly: {},
     teamChart: "scatter", teamX: "off_epa", teamY: "def_epa", teamRank: "off_epa", teamSet: "Offense",
-    playerPos: "QB", playerChart: "bar", playerRank: "passing_yards", playerX: "attempts", playerY: "passing_epa", playerSet: "Passing",
+    playerPos: "QB", playerChart: "bar", playerMark: "faces", playerRank: "passing_yards", playerX: "attempts", playerY: "passing_epa", playerSet: "Passing",
     teamHeat: [], playerHeat: [], playerQual: true, playerSort: null,
     team: null, focus: null, searchIndex: {}, prevTab: "teams", profileEntity: null, logStat: "py",
     field: {}, fieldMap: null, careers: null, careerStat: null,
@@ -64,6 +64,13 @@
     { k: "penalties", l: "Penalties", hi: false },
     { k: "penalty_yards", l: "Penalty yards", hi: false },
     { k: "fg_made", l: "Field goals made", hi: true },
+    // rates & tendencies (offense)
+    { k: "pass_rate", l: "Pass rate %", hi: true, d: 1, fn: (t) => (t.attempts + t.carries) ? 100 * t.attempts / (t.attempts + t.carries) : null },
+    { k: "pass_ypg", l: "Passing yards / game", hi: true, d: 1, fn: (t) => games(t) ? (t.passing_yards || 0) / games(t) : null },
+    { k: "rush_ypg", l: "Rushing yards / game", hi: true, d: 1, fn: (t) => games(t) ? (t.rushing_yards || 0) / games(t) : null },
+    { k: "ypg", l: "Total yards / game", hi: true, d: 1, fn: (t) => games(t) ? ((t.passing_yards || 0) + (t.rushing_yards || 0)) / games(t) : null },
+    { k: "team_ypa", l: "Yards / attempt (pass)", hi: true, d: 2, fn: (t) => t.attempts ? (t.passing_yards || 0) / t.attempts : null },
+    { k: "sack_rate_allowed", l: "Sack rate allowed %", hi: false, d: 1, fn: (t) => (t.attempts + (t.sacks_suffered || 0)) ? 100 * (t.sacks_suffered || 0) / (t.attempts + (t.sacks_suffered || 0)) : null },
     // situational
     { k: "td3", l: "3rd down conv %", hi: true, d: 1 },
     { k: "rztd", l: "Red-zone TD %", hi: true, d: 1 },
@@ -120,6 +127,10 @@
     { k: "total_tds", l: "Total TDs", hi: true, fn: (p) => (p.passing_tds || 0) + (p.rushing_tds || 0) + (p.receiving_tds || 0) },
     { k: "touches", l: "Touches (car+rec)", hi: true, fn: (p) => (p.carries || 0) + (p.receptions || 0) },
     { k: "yptouch", l: "Yards / touch", hi: true, d: 2, fn: (p) => { const t = (p.carries || 0) + (p.receptions || 0); return t ? ((p.rushing_yards || 0) + (p.receiving_yards || 0)) / t : null; } },
+    { k: "yac_per_rec", l: "YAC / reception", hi: true, d: 2, fn: (p) => p.receptions ? (p.receiving_yards_after_catch || 0) / p.receptions : null },
+    { k: "scrim_ypg", l: "Scrimmage yds / game", hi: true, d: 1, fn: (p) => p.games ? ((p.rushing_yards || 0) + (p.receiving_yards || 0)) / p.games : null },
+    { k: "td_per_game", l: "Total TDs / game", hi: true, d: 2, fn: (p) => p.games ? ((p.passing_tds || 0) + (p.rushing_tds || 0) + (p.receiving_tds || 0)) / p.games : null },
+    { k: "fp_per_touch", l: "Fantasy pts / touch (PPR)", hi: true, d: 2, fn: (p) => { const t = (p.carries || 0) + (p.receptions || 0); return t ? (p.fantasy_points_ppr || 0) / t : null; } },
     { k: "fantasy_points", l: "Fantasy points", hi: true, d: 1 },
     { k: "fantasy_points_ppr", l: "Fantasy points (PPR)", hi: true, d: 1 },
     { k: "fppg", l: "Fantasy pts/game (PPR)", hi: true, d: 2, fn: (p) => (p.games && p.fantasy_points_ppr != null) ? p.fantasy_points_ppr / p.games : null },
@@ -191,7 +202,7 @@
   const TEAM_GROUP_ORDER = ["Offense", "Defense", "Overall"];
   const PL_PASS = new Set(["passing_yards", "pass_ypg", "passing_tds", "passing_epa", "passing_cpoe", "cmp_pct", "ypa", "td_pct", "int_pct", "passing_interceptions", "attempts", "completions", "passing_first_downs", "passing_air_yards", "sacks_suffered"]);
   const PL_RUSH = new Set(["carries", "rushing_yards", "rush_ypg", "rushing_tds", "rushing_epa", "ypc", "rushing_first_downs"]);
-  const PL_REC = new Set(["targets", "receptions", "receiving_yards", "rec_ypg", "receiving_tds", "receiving_epa", "ypr", "catch_pct", "ypt", "adot", "receiving_first_downs", "target_share", "air_yards_share", "wopr", "racr", "receiving_yards_after_catch"]);
+  const PL_REC = new Set(["targets", "receptions", "receiving_yards", "rec_ypg", "receiving_tds", "receiving_epa", "ypr", "catch_pct", "ypt", "adot", "receiving_first_downs", "target_share", "air_yards_share", "wopr", "racr", "receiving_yards_after_catch", "yac_per_rec"]);
   const playerGroupOf = (k) => (k.startsWith("ngs_") || k === "snap_pct") ? "Next Gen" : k.startsWith("rz_") ? "Red zone" : (k.startsWith("def_") || k === "tackles") ? "Defense" : (k.startsWith("fg_") || k.startsWith("pat_") || k === "k_points") ? "Kicking" : PL_PASS.has(k) ? "Passing" : PL_RUSH.has(k) ? "Rushing" : PL_REC.has(k) ? "Receiving" : "Overall";
   const PL_GROUP_ORDER = ["Passing", "Rushing", "Receiving", "Red zone", "Overall", "Next Gen", "Defense", "Kicking"];
 
@@ -283,6 +294,7 @@
     segmented("#player-seasontype", (v) => { state.playerSeasonType = v; document.querySelectorAll("#view-players .builder .ctl").forEach((c) => { if (c.querySelector("#player-wk-from")) c.style.display = v === "post" ? "none" : ""; }); renderPlayers(); });
     segmented("#player-pos", (v) => { applyPlayerDefaults(v); renderPlayers(); });
     segmented("#player-chart", (v) => { state.playerChart = v; playerControls(); renderPlayers(); });
+    segmented("#player-mark", (v) => { state.playerMark = v; renderPlayers(); });
     $("#player-rank").addEventListener("change", (e) => { state.playerRank = e.target.value; state.playerSort = null; renderPlayers(); });
     $("#player-x").addEventListener("change", (e) => { state.playerX = e.target.value; renderPlayers(); });
     $("#player-y").addEventListener("change", (e) => { state.playerY = e.target.value; renderPlayers(); });
@@ -416,12 +428,14 @@
     if (q.ps && PLAYER_SETS[q.ps]) { state.playerSet = q.ps; state.playerHeat = PLAYER_SETS[q.ps].slice(); }
     if (q.ph) state.playerHeat = q.ph.split(".").filter((k) => PSTAT[k]);
     if (q.pq != null) state.playerQual = q.pq === "1";
+    if (q.pm) state.playerMark = q.pm;
     state.playerSeasonType = q.pst === "post" ? "post" : "reg";
     state.wkFrom = q.pwf ? +q.pwf : 1;
     state.wkTo = q.pwt ? +q.pwt : 99;
     setSeg("#player-seasontype", "st", state.playerSeasonType);
     setSeg("#player-pos", "pos", state.playerPos);
     setSeg("#player-chart", "type", state.playerChart);
+    setSeg("#player-mark", "mk", state.playerMark);
     $("#player-rank").value = state.playerRank; $("#player-x").value = state.playerX; $("#player-y").value = state.playerY;
     $("#player-set").value = state.playerSet; $("#player-qual").checked = state.playerQual;
     $("#player-wk-from").value = state.wkFrom; $("#player-wk-to").value = state.wkTo === 99 ? state.wkMax : state.wkTo;
@@ -443,7 +457,7 @@
     const p = new URLSearchParams();
     p.set("pp", state.playerPos); p.set("pc", state.playerChart);
     if (state.playerChart === "bar") p.set("pr", state.playerRank);
-    else if (state.playerChart === "scatter") { p.set("px", state.playerX); p.set("py", state.playerY); }
+    else if (state.playerChart === "scatter") { p.set("px", state.playerX); p.set("py", state.playerY); if (state.playerMark !== "faces") p.set("pm", state.playerMark); }
     else if (state.playerChart === "heatmap") { p.set("ps", state.playerSet); p.set("ph", state.playerHeat.join(".")); }
     if (!state.playerQual) p.set("pq", "0");
     if (state.playerSeasonType === "post") p.set("pst", "post");
@@ -524,10 +538,10 @@
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
   function fillSelect2(el, pairs, sel) { el.innerHTML = pairs.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc || b.dataset.cpos || b.dataset.cview); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc || b.dataset.cpos || b.dataset.cview || b.dataset.mk); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
-  function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : t === "heatmap" ? ["set"] : []); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
+  function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : t === "heatmap" ? ["set"] : []); $("#player-heat-chips").hidden = t !== "heatmap"; $("#player-mark").hidden = t !== "scatter"; if (t === "heatmap") playerChips(); }
 
   function renderChips(id, cat, sel, onT) { const el = $("#" + id); el.innerHTML = cat.map((s) => `<span class="chip ${sel.includes(s.k) ? "on" : ""}" data-k="${s.k}">${s.l}</span>`).join(""); el.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => onT(c.dataset.k))); }
   const teamChips = () => renderChips("team-heat-chips", TEAM_STATS, state.teamHeat, (k) => { toggleHeat(state.teamHeat, k); teamChips(); renderTeams(); });
@@ -733,9 +747,33 @@
     }
     return charts[id];
   }
-  function chartExtras(name) {
+  const SAVE_ICON = "path://M11 3h2v6h3l-4 5-4-5h3zM4 18h16v2H4z";
+  // Render the chart offscreen at a fixed large size so shared PNGs are never
+  // cramped on a narrow (mobile) viewport. Reuses cached logo/face images.
+  function exportChartPng(id, name) {
+    const src = charts[id]; if (!src) return;
+    const opt = src.getOption();
+    const W = 1200, H = 750;
+    const holder = document.createElement("div");
+    holder.style.cssText = `position:fixed;left:-100000px;top:0;width:${W}px;height:${H}px;`;
+    document.body.appendChild(holder);
+    const off = echarts.init(holder, null, { renderer: "canvas", width: W, height: H });
+    off.setOption(opt);
+    setTimeout(() => {
+      try {
+        const url = off.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: BG });
+        const a = document.createElement("a"); a.href = url; a.download = (name || "nfl-graphs") + ".png";
+        document.body.appendChild(a); a.click(); a.remove();
+      } catch (e) { console.warn("export failed", e); }
+      off.dispose(); holder.remove();
+    }, 320);
+  }
+  function chartExtras(name, id) {
+    const feature = id
+      ? { myPng: { show: true, title: "Save PNG", icon: SAVE_ICON, onclick: () => exportChartPng(id, name) } }
+      : { saveAsImage: { title: "Save PNG", name: name, pixelRatio: 2, backgroundColor: BG } };
     return {
-      toolbox: { right: 8, top: 6, itemSize: 16, itemGap: 8, iconStyle: { borderColor: AXIS }, emphasis: { iconStyle: { borderColor: TEXT } }, feature: { saveAsImage: { title: "Save PNG", name: name, pixelRatio: 2, backgroundColor: BG } } },
+      toolbox: { right: 8, top: 6, itemSize: 16, itemGap: 8, iconStyle: { borderColor: AXIS }, emphasis: { iconStyle: { borderColor: TEXT } }, feature },
       graphic: [{ type: "text", right: 12, bottom: 8, z: 12, silent: true, style: { text: "@mikeapter", fill: AXIS, opacity: 0.55, fontSize: 12, fontWeight: 600 } }],
     };
   }
@@ -808,18 +846,18 @@
     const ax = pts.reduce((s, p) => s + p.x, 0) / pts.length, ay = pts.reduce((s, p) => s + p.y, 0) / pts.length;
     const foc = state.focus && state.focus.type === "team" ? state.focus.id : null;
     ec("team-chart-el").setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-teams-${sx.k}-vs-${sy.k}-${state.season}`), grid: { left: 64, right: 26, top: 26, bottom: 54 },
+      backgroundColor: "transparent", ...chartExtras(`nfl-teams-${sx.k}-vs-${sy.k}-${state.season}`, "team-chart-el"), grid: { left: 64, right: 26, top: 26, bottom: 54 },
       tooltip: { trigger: "item", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (p) => `<b>${teamMeta(p.name).name}</b><br/>${sx.l}: ${pfmt(p.value[0], sx)}<br/>${sy.l}: ${pfmt(p.value[1], sy)}` },
       xAxis: { ...axisCommon(), name: sx.l, nameLocation: "middle", nameGap: 32, nameTextStyle: { color: AXIS }, inverse: !sx.hi, scale: true },
       yAxis: { ...axisCommon(), name: sy.l, nameLocation: "middle", nameGap: 46, nameTextStyle: { color: AXIS }, inverse: !sy.hi, scale: true },
-      series: [{ type: "scatter", data: pts.map((p) => ({ value: [p.x, p.y], name: p.team, symbol: logo(p.team) ? "image://" + logo(p.team) : "circle", symbolSize: p.team === foc ? 42 : 28, label: p.team === foc ? { show: true, position: "top", formatter: p.team, color: TEXT, fontWeight: 700 } : { show: false } })), markLine: { silent: true, symbol: "none", lineStyle: { color: "#5a6a86", type: "dashed", opacity: 0.7 }, label: { show: false }, data: [{ xAxis: ax }, { yAxis: ay }] } }],
+      series: [{ type: "scatter", data: pts.map((p) => { const f = p.team === foc; return { value: [p.x, p.y], name: p.team, symbol: logo(p.team) ? "image://" + logo(p.team) : "circle", symbolSize: f ? 42 : 28, label: { show: true, position: "bottom", distance: 3, formatter: p.team, color: f ? TEXT : AXIS, fontSize: f ? 12 : 10, fontWeight: f ? 800 : 600, textBorderColor: BG, textBorderWidth: 3 } }; }), markLine: { silent: true, symbol: "none", lineStyle: { color: "#5a6a86", type: "dashed", opacity: 0.7 }, label: { show: false }, data: [{ xAxis: ax }, { yAxis: ay }] } }],
     }, true);
   }
   function teamBar(rows) {
     const s = TSTAT[state.teamRank];
     const list = rows.map((t) => ({ team: t.team, v: pval(t, s) })).filter((r) => r.v != null).sort((a, b) => s.hi ? a.v - b.v : b.v - a.v);
     ec("team-chart-el").setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-teams-rank-${s.k}-${state.season}`), grid: { left: 54, right: 60, top: 26, bottom: 20 },
+      backgroundColor: "transparent", ...chartExtras(`nfl-teams-rank-${s.k}-${state.season}`, "team-chart-el"), grid: { left: 54, right: 60, top: 26, bottom: 20 },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => `${teamMeta(ps[0].name).name}<br/>${s.l}: ${pfmt(ps[0].value, s)}` },
       xAxis: { ...axisCommon(), type: "value" }, yAxis: { type: "category", data: list.map((r) => r.team), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 10 } },
       series: [{ type: "bar", data: list.map((r) => ({ value: r.v, name: r.team, itemStyle: { color: color(r.team), borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, s) }, barMaxWidth: 13 }],
@@ -883,22 +921,56 @@
     const s = PSTAT[state.playerRank];
     const rows = list.map((p) => ({ p, v: pval(p, s) })).filter((r) => r.v != null).sort((a, b) => s.hi ? b.v - a.v : a.v - b.v).slice(0, 15).reverse();
     ec("player-chart-el").setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-players-${state.playerPos}-${s.k}-${state.season}`), grid: { left: 140, right: 46, top: 26, bottom: 20 },
+      backgroundColor: "transparent", ...chartExtras(`nfl-players-${state.playerPos}-${s.k}-${state.season}`, "player-chart-el"), grid: { left: 140, right: 46, top: 26, bottom: 20 },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (ps) => `${ps[0].name}<br/>${s.l}: ${pfmt(ps[0].value, s)}` },
       xAxis: { ...axisCommon(), type: "value" }, yAxis: { type: "category", data: rows.map((r) => r.p.player), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: TEXT, fontSize: 11 } },
       series: [{ type: "bar", data: rows.map((r) => ({ value: r.v, name: r.p.player, itemStyle: { color: color(r.p.team), borderRadius: [0, 4, 4, 0] } })), label: { show: true, position: "right", color: AXIS, formatter: (p) => pfmt(p.value, s) }, barMaxWidth: 22 }],
     }, true);
   }
-  function playerScatter(list) {
+  // Round headshot avatars — fetched CORS (nfl.com sends ACAO:*), clipped to a
+  // circle with a team-color ring on a canvas, so the export stays untainted.
+  const faceCache = {};
+  const lastName = (n) => { const p = String(n || "").split(" "); return p.length > 1 ? p.slice(1).join(" ") : n; };
+  async function faceAvatar(p) {
+    const key = p.id || p.player;
+    if (key in faceCache) return faceCache[key];
+    if (!p.face) { faceCache[key] = null; return null; }
+    try {
+      // Cloudinary transform: tiny, face-cropped (4KB not 4MB) — keeps mobile snappy
+      const src = p.face.replace("/f_auto,q_auto/", "/f_auto,q_auto,w_96,h_96,c_fill,g_face/");
+      const blob = await (await fetch(src, { mode: "cors" })).blob();
+      const bmp = await createImageBitmap(blob);
+      const S = 104, c = document.createElement("canvas"); c.width = c.height = S;
+      const ctx = c.getContext("2d");
+      ctx.save(); ctx.beginPath(); ctx.arc(S / 2, S / 2, S / 2 - 5, 0, Math.PI * 2); ctx.closePath();
+      ctx.fillStyle = BG; ctx.fill(); ctx.clip();
+      const sc = Math.max(S / bmp.width, S / bmp.height), w = bmp.width * sc, h = bmp.height * sc;
+      ctx.drawImage(bmp, (S - w) / 2, (S - h) / 2, w, h); ctx.restore();
+      ctx.beginPath(); ctx.arc(S / 2, S / 2, S / 2 - 4, 0, Math.PI * 2); ctx.lineWidth = 7; ctx.strokeStyle = color(p.team) || "#888"; ctx.stroke();
+      const url = await new Promise((res) => c.toBlob((b) => res(b ? URL.createObjectURL(b) : null), "image/png"));
+      faceCache[key] = url; return url;
+    } catch (e) { faceCache[key] = null; return null; }
+  }
+  async function playerScatter(list) {
     const sx = PSTAT[state.playerX], sy = PSTAT[state.playerY];
     const pts = list.map((p) => ({ x: pval(p, sx), y: pval(p, sy), p })).filter((o) => o.x != null && o.y != null);
     const foc = state.focus && state.focus.type === "player" ? state.focus.id : null;
+    const mode = state.playerMark || "faces";
+    const avatars = {};
+    if (mode === "faces") await Promise.all(pts.slice(0, 90).map(async (o) => { avatars[o.p.id || o.p.player] = await faceAvatar(o.p); }));
+    const nameLbl = (o, f, pos) => ({ show: true, position: pos, distance: 3, formatter: lastName(o.p.player), color: f ? TEXT : AXIS, fontSize: f ? 12 : 9.5, fontWeight: f ? 800 : 600, textBorderColor: BG, textBorderWidth: 3 });
+    const data = pts.map((o) => {
+      const key = o.p.id || o.p.player, f = o.p.player === foc, av = avatars[key];
+      if (mode === "faces" && av) return { value: [o.x, o.y], pl: o.p.player, tm: o.p.team, symbol: "image://" + av, symbolSize: f ? 48 : 34, label: nameLbl(o, f, "bottom") };
+      if (mode === "names") return { value: [o.x, o.y], pl: o.p.player, tm: o.p.team, symbol: "circle", symbolSize: f ? 15 : 9, itemStyle: { color: color(o.p.team), borderColor: f ? TEXT : "transparent", borderWidth: f ? 2 : 0, opacity: foc && !f ? 0.4 : 0.95 }, label: nameLbl(o, f, "right") };
+      return { value: [o.x, o.y], pl: o.p.player, tm: o.p.team, symbol: "circle", symbolSize: f ? 18 : 11, itemStyle: { color: color(o.p.team), borderColor: f ? TEXT : "transparent", borderWidth: f ? 2 : 0, opacity: foc && !f ? 0.5 : 0.95 }, label: f ? { show: true, position: "top", formatter: o.p.player, color: TEXT, fontWeight: 700 } : { show: false } };
+    });
     ec("player-chart-el").setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-players-${state.playerPos}-${sx.k}-vs-${sy.k}-${state.season}`), grid: { left: 60, right: 26, top: 26, bottom: 52 },
+      backgroundColor: "transparent", ...chartExtras(`nfl-players-${state.playerPos}-${sx.k}-vs-${sy.k}-${state.season}`, "player-chart-el"), grid: { left: 60, right: 26, top: 26, bottom: 52 },
       tooltip: { trigger: "item", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (o) => `<b>${o.data.pl}</b> (${o.data.tm})<br/>${sx.l}: ${pfmt(o.value[0], sx)}<br/>${sy.l}: ${pfmt(o.value[1], sy)}` },
       xAxis: { ...axisCommon(), name: sx.l, nameLocation: "middle", nameGap: 32, nameTextStyle: { color: AXIS }, inverse: !sx.hi, scale: true },
       yAxis: { ...axisCommon(), name: sy.l, nameLocation: "middle", nameGap: 46, nameTextStyle: { color: AXIS }, inverse: !sy.hi, scale: true },
-      series: [{ type: "scatter", symbolSize: 11, data: pts.map((o) => { const f = o.p.player === foc; return { value: [o.x, o.y], pl: o.p.player, tm: o.p.team, itemStyle: { color: color(o.p.team), borderColor: f ? TEXT : "transparent", borderWidth: f ? 2 : 0, opacity: foc && !f ? 0.5 : 0.95 }, symbolSize: f ? 18 : 11, label: f ? { show: true, position: "top", formatter: o.p.player, color: TEXT, fontWeight: 700 } : { show: false } }; }) }],
+      series: [{ type: "scatter", data }],
     }, true);
   }
   // Archetype quadrant scatter: two defining axes + labeled quadrants at the medians.
@@ -920,7 +992,7 @@
     const foc = state.focus && state.focus.type === "player" ? state.focus.id : null;
     $("#player-hint").textContent = `${sx.l} (x) vs ${sy.l} (y) · dot size = ${ssize.l} · quadrants split at the median`;
     ec("player-chart-el").setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-archetypes-${state.playerPos}-${state.season}`),
+      backgroundColor: "transparent", ...chartExtras(`nfl-archetypes-${state.playerPos}-${state.season}`, "player-chart-el"),
       grid: { left: 60, right: 26, top: 30, bottom: 52 },
       graphic: [
         { type: "text", right: 30, top: 36, style: { text: a.tr, fill: AXIS, fontSize: 11, fontWeight: 700, opacity: 0.8 } },
@@ -969,7 +1041,7 @@
     const data = [];
     entities.forEach((e, yi) => stats.forEach((s, xi) => { const raw = pval(e, s); if (raw == null) return; const z = (raw - cols[xi].mean) / cols[xi].sd * (s.hi ? 1 : -1); data.push({ value: [xi, entities.length - 1 - yi, +z.toFixed(3)], raw, ent: longNameFn(e), lab: s.l, s }); }));
     ec(elId).setOption({
-      backgroundColor: "transparent", ...chartExtras(`nfl-${fileprefix}-${state.season}`), grid: { left: 138, right: 20, top: 30, bottom: 62 },
+      backgroundColor: "transparent", ...chartExtras(`nfl-${fileprefix}-${state.season}`, elId), grid: { left: 138, right: 20, top: 30, bottom: 62 },
       tooltip: { backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (p) => `<b>${p.data.ent}</b><br/>${p.data.lab}: ${pfmt(p.data.raw, p.data.s)}` },
       xAxis: { type: "category", data: stats.map((s) => s.l), position: "top", axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: AXIS, interval: 0, fontSize: 10, overflow: "break", width: 76 } },
       yAxis: { type: "category", data: entities.map(nameFn).reverse(), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: TEXT, fontSize: 11 } },
