@@ -51,6 +51,7 @@
     <button class="tab active" data-view="home" role="tab">Home</button>
     <button class="tab" data-view="teams" role="tab">Teams</button>
     <button class="tab" data-view="players" role="tab">Players</button>
+    <button class="tab" data-view="contracts" role="tab">Contracts</button>
     <button class="tab" data-view="standings" role="tab">Standings &amp; Scores</button>
     <button class="tab" data-view="trends" role="tab">Team Trends</button>
     <button class="tab" data-view="college" role="tab">College</button>
@@ -133,6 +134,34 @@
       </div>
       <div class="chart-wrap"><div id="player-chart-el" class="chart tall"></div></div>
       <div class="table-wrap"><table id="player-table"></table></div>
+    </section>
+
+    <!-- Contracts -->
+    <section class="view" id="view-contracts">
+      <div class="view-head">
+        <h2>Contracts</h2>
+        <div class="builder">
+          <div class="segmented" id="con-pos">
+            <button class="seg active" data-cpos="ALL">All</button>
+            <button class="seg" data-cpos="QB">QB</button>
+            <button class="seg" data-cpos="RB">RB</button>
+            <button class="seg" data-cpos="WR">WR</button>
+            <button class="seg" data-cpos="TE">TE</button>
+            <button class="seg" data-cpos="OL">OL</button>
+            <button class="seg" data-cpos="EDGE">EDGE</button>
+            <button class="seg" data-cpos="DL">DL</button>
+            <button class="seg" data-cpos="LB">LB</button>
+            <button class="seg" data-cpos="DB">DB</button>
+            <button class="seg" data-cpos="ST">ST</button>
+          </div>
+          <label class="ctl"><span>Team</span><select id="con-team"></select></label>
+          <label class="ctl"><span>Sort by</span><select id="con-sort"></select></label>
+          <label class="ctl"><span>Find</span><input id="con-find" type="search" placeholder="Player name…" autocomplete="off" /></label>
+        </div>
+        <p class="hint" id="con-hint"></p>
+      </div>
+      <div class="con-summary" id="con-summary"></div>
+      <div class="table-wrap"><table id="con-table"></table></div>
     </section>
 
     <!-- Standings & Scores -->

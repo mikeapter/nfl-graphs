@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["home", "teams", "players", "standings", "trends", "college", "tendencies", "fantasy"];
+  const TABS = ["home", "teams", "players", "contracts", "standings", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -27,6 +27,7 @@
     collegeScope: "National", collegeClass: "FBS", collegeMode: "players", collegeTeamRank: "pd", collegeTeamSort: null,
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
     fanView: "rankings", fanPos: "QB", fanScoring: "ppr", fanPassTd6: false, fanSort: null,
+    contracts: null, conPos: "ALL", conTeam: "", conSort: "apy", conFind: "",
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
     teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
   };
@@ -328,6 +329,12 @@
     $("#fan-passtd6").addEventListener("change", (e) => { state.fanPassTd6 = e.target.checked; renderFantasy(); });
     $("#fan-table").addEventListener("click", onFanSort);
 
+    // Contracts builder
+    segmented("#con-pos", (v) => { state.conPos = v; renderContracts(); });
+    $("#con-team").addEventListener("change", (e) => { state.conTeam = e.target.value; renderContracts(); });
+    $("#con-sort").addEventListener("change", (e) => { state.conSort = e.target.value; renderContracts(); });
+    $("#con-find").addEventListener("input", (e) => { state.conFind = e.target.value; renderContracts(); });
+
     // Profile / compare controls
     $("#prof-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
     $("#cmp-back").addEventListener("click", () => go(`#/${state.prevTab}${seasonSuffix()}`));
@@ -505,7 +512,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -515,7 +522,8 @@
     el.value = sel;
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc); })); }
+  function fillSelect2(el, pairs, sel) { el.innerHTML = pairs.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); el.value = sel; }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc || b.dataset.cpos); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : t === "heatmap" ? ["set"] : []); $("#player-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") playerChips(); }
@@ -573,6 +581,71 @@
     try { const t = await (await fetch(`./data/tendencies_${state.season}.json`)).json(); state.tend[state.season] = t; return t; }
     catch (e) { state.tend[state.season] = null; return null; }
   }
+  async function ensureContracts() {
+    if (state.contracts) return state.contracts;
+    try { const c = await (await fetch("./data/contracts.json")).json(); state.contracts = c.players; return c.players; }
+    catch (e) { state.contracts = []; return []; }
+  }
+  const CON_SORTS = [
+    { k: "apy", l: "APY (avg / year)", f: (r) => r.apy },
+    { k: "v", l: "Total value", f: (r) => r.v },
+    { k: "g", l: "Guaranteed", f: (r) => r.g },
+    { k: "cap", l: "% of salary cap", f: (r) => r.cap },
+    { k: "y", l: "Contract length", f: (r) => r.y },
+    { k: "ys", l: "Year signed", f: (r) => r.ys },
+  ];
+  const CON_SORT = Object.fromEntries(CON_SORTS.map((s) => [s.k, s]));
+  const money = (m) => m == null ? "—" : m >= 100 ? `$${Math.round(m)}M` : `$${(+m).toFixed(1)}M`;
+  const CON_ROWS = 250;
+  let conWired = false;
+  async function renderContracts() {
+    const all = await ensureContracts();
+    if (!conWired) {
+      fillSelect2($("#con-sort"), CON_SORTS.map((s) => [s.k, s.l]), state.conSort);
+      const teamOpts = [["", "All teams"], ...Object.keys(state.meta.teams).sort().map((a) => [a, state.meta.teams[a].name])];
+      fillSelect2($("#con-team"), teamOpts, state.conTeam);
+      conWired = true;
+    }
+    const find = state.conFind.trim().toLowerCase();
+    let rows = all.filter((r) =>
+      (state.conPos === "ALL" || r.pg === state.conPos) &&
+      (!state.conTeam || r.t === state.conTeam) &&
+      (!find || r.n.toLowerCase().includes(find)));
+    const sf = CON_SORT[state.conSort].f;
+    rows = rows.slice().sort((a, b) => (sf(b) ?? -Infinity) - (sf(a) ?? -Infinity));
+
+    const posLabel = state.conPos === "ALL" ? "All positions" : state.conPos;
+    $("#con-hint").textContent = "Active player contracts · APY = average per year · guarantees & cap % from OverTheCap · click a name for the player's profile";
+    // summary strip from the filtered set
+    const apys = rows.map((r) => r.apy).filter((v) => v != null);
+    const avg = apys.length ? apys.reduce((s, v) => s + v, 0) / apys.length : null;
+    const top = rows.find((r) => r.apy != null);
+    $("#con-summary").innerHTML = apys.length
+      ? `<div class="con-stat"><span>${posLabel}${state.conTeam ? " · " + state.meta.teams[state.conTeam].name : ""}</span><b>${rows.length} deals</b></div>` +
+        `<div class="con-stat"><span>Top APY</span><b>${money(top.apy)}</b><em>${top.n}</em></div>` +
+        `<div class="con-stat"><span>Average APY</span><b>${money(avg)}</b></div>` +
+        `<div class="con-stat"><span>Median APY</span><b>${money(apys.slice().sort((a, b) => a - b)[Math.floor(apys.length / 2)])}</b></div>`
+      : "";
+
+    const shown = rows.slice(0, CON_ROWS);
+    const sk = state.conSort;
+    const th = (k, l) => `<th data-csort="${k}" class="con-th${sk === k ? " on" : ""}">${l}${sk === k ? " ▾" : ""}</th>`;
+    const head = `<thead><tr><th>#</th><th class="con-name">Player</th><th>Pos</th><th>Team</th>${th("apy", "APY")}${th("v", "Total")}${th("g", "Gtd")}${th("y", "Yrs")}${th("ys", "Signed")}${th("cap", "Cap %")}</tr></thead>`;
+    const hasProfile = (id) => id && state.data.players.some((p) => p.id === id);
+    const body = shown.map((r, i) => {
+      const lg = r.t && state.meta.teams[r.t] ? `<img class="con-logo" src="${state.meta.teams[r.t].logo}" alt=""/>` : "";
+      const nm = hasProfile(r.id) ? `<a class="con-plink" data-id="${r.id}">${r.n}</a>` : r.n;
+      return `<tr><td class="con-rank">${i + 1}</td><td class="con-name">${nm}</td><td>${r.p}</td><td class="con-team">${lg}${r.t || "—"}</td>` +
+        `<td class="con-num on">${money(r.apy)}</td><td class="con-num">${money(r.v)}</td><td class="con-num">${money(r.g)}</td>` +
+        `<td class="con-num">${r.y ?? "—"}</td><td class="con-num">${r.ys ?? "—"}</td><td class="con-num">${r.cap != null ? r.cap + "%" : "—"}</td></tr>`;
+    }).join("");
+    const more = rows.length > CON_ROWS ? `<tfoot><tr><td colspan="10" class="con-more">Showing top ${CON_ROWS} of ${rows.length} — narrow by team, position, or name to see the rest.</td></tr></tfoot>` : "";
+    const el = $("#con-table");
+    el.innerHTML = head + `<tbody>${body}</tbody>` + more;
+    el.querySelectorAll(".con-plink").forEach((a) => a.addEventListener("click", () => go(`#/player/${encodeURIComponent(a.dataset.id)}${seasonSuffix()}`)));
+    el.querySelectorAll(".con-th").forEach((h) => h.addEventListener("click", () => { state.conSort = h.dataset.csort; $("#con-sort").value = state.conSort; renderContracts(); }));
+  }
+
   const cteam = (school) => { const t = state.college[state.season]; return (t && t.teams && t.teams[school]) || { logo: "", color: "#4da3ff", conf: "", abbr: school }; };
   const findCollege = (id) => { const c = state.college[state.season]; return c && c.players.find((p) => p.id === id); };
   let _nflNames = null;

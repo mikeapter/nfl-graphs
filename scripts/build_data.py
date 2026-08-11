@@ -948,6 +948,71 @@ def build_standings_scores_trends(games_path: Path, season: int):
 
 
 # ---------------------------------------------------------------------------
+# Contracts (OverTheCap data via nflverse) — Spotrac-style salary page
+# ---------------------------------------------------------------------------
+CONTRACTS_URL = f"{REL}/contracts/historical_contracts.parquet"
+NICK_TO_ABBR = {full.split()[-1].lower(): abbr for abbr, (full, *_rest) in TEAMS.items()}
+NICK_TO_ABBR.update({"redskins": "WAS", "football": "WAS", "oakland": "LV"})
+POS_GROUP = {
+    "QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE",
+    "LT": "OL", "LG": "OL", "C": "OL", "RG": "OL", "RT": "OL", "OL": "OL", "G": "OL", "T": "OL",
+    "ED": "EDGE", "DE": "EDGE", "IDL": "DL", "DT": "DL", "DL": "DL", "NT": "DL",
+    "LB": "LB", "ILB": "LB", "OLB": "LB", "MLB": "LB",
+    "CB": "DB", "S": "DB", "FS": "DB", "SS": "DB", "DB": "DB", "SAF": "DB",
+    "K": "ST", "P": "ST", "LS": "ST",
+}
+
+
+def resolve_contract_team(val: str) -> str | None:
+    """Contracts list team as a nickname ('Bengals') or a traded-mid-deal combo
+    ('ARI/TEN'). Map nicknames to our abbreviations; for combos take the last
+    (most recent) token."""
+    if not isinstance(val, str) or not val:
+        return None
+    if "/" in val:
+        tok = val.split("/")[-1].strip().upper()
+        return tok if tok in TEAMS else None
+    return NICK_TO_ABBR.get(val.strip().lower())
+
+
+def load_contracts():
+    p = fetch(CONTRACTS_URL, CACHE_DIR / "contracts.parquet", force=True)
+    if not p:
+        return None
+    cols = ["player", "position", "team", "is_active", "year_signed", "years",
+            "value", "apy", "guaranteed", "apy_cap_pct", "gsis_id"]
+    return pd.read_parquet(p, columns=cols)
+
+
+def build_contracts(df, team_by_id: dict) -> list:
+    """Active contracts, one row per player (highest-APY active deal). Team is
+    taken from our latest-season roster when we can match the gsis id (keeps it
+    consistent with our logos), else resolved from the OTC team label."""
+    a = df[df["is_active"] == True].sort_values("apy", ascending=False)  # noqa: E712
+    seen, rows = set(), []
+    for r in a.itertuples(index=False):
+        name = r.player
+        if not isinstance(name, str) or not name:
+            continue
+        pid = r.gsis_id if isinstance(r.gsis_id, str) and r.gsis_id else None
+        dedup = pid or name
+        if dedup in seen:
+            continue
+        seen.add(dedup)
+        pos = (r.position or "").strip() if isinstance(r.position, str) else ""
+        team = (team_by_id.get(pid) if pid else None) or resolve_contract_team(r.team)
+        num = lambda v, d=2: round(float(v), d) if pd.notna(v) else None  # noqa: E731
+        rows.append({
+            "n": name, "p": pos, "pg": POS_GROUP.get(pos, pos or "?"), "t": team, "id": pid,
+            "apy": num(r.apy), "v": num(r.value, 1), "g": num(r.guaranteed, 1),
+            "y": int(r.years) if pd.notna(r.years) else None,
+            "ys": int(r.year_signed) if pd.notna(r.year_signed) else None,
+            "cap": round(float(r.apy_cap_pct) * 100, 1) if pd.notna(r.apy_cap_pct) else None,
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -963,6 +1028,7 @@ def main():
     built = []
     college_built = []
     tend_built = []
+    latest_team_by_id = {}  # gsis id -> current team abbr (latest season wins)
     careers = {}  # gsis id -> {player, pos, s: {season: {stat: val}}}
     CAREER_FIELDS = ["games", "passing_yards", "passing_tds", "passing_epa", "attempts",
                      "rushing_yards", "rushing_tds", "rushing_epa", "carries",
@@ -988,6 +1054,7 @@ def main():
         teams_post = [t for t in teams_post if t["team"] in post_rec]
         players_list = build_players(players)
         ids = {p["id"] for p in players_list if p.get("id")}
+        latest_team_by_id.update({p["id"]: p["team"] for p in players_list if p.get("id") and p.get("team")})
         # situational: red-zone + 3rd down (teams) and red-zone opportunities (players)
         try:
             sit_teams, sit_players = build_situational(pbp)
@@ -1088,6 +1155,17 @@ def main():
     multi = {pid: c for pid, c in careers.items() if len(c["s"]) >= 2}
     (DATA_DIR / "careers.json").write_text(json.dumps({"players": multi}, separators=(",", ":")), encoding="utf-8")
     print(f"\nwrote careers.json  ({len(multi)} multi-season players)")
+
+    # contracts (active player salaries — OverTheCap via nflverse)
+    try:
+        cdf = load_contracts()
+        if cdf is not None and len(cdf):
+            contracts = build_contracts(cdf, latest_team_by_id)
+            (DATA_DIR / "contracts.json").write_text(
+                json.dumps({"players": contracts, "source": "OverTheCap via nflverse"}, separators=(",", ":")), encoding="utf-8")
+            print(f"wrote contracts.json  ({len(contracts)} active contracts)")
+    except Exception as e:  # noqa: BLE001
+        print(f"  !! contracts skipped: {e}")
 
     print("\n== Logos ==")
     download_logos()
