@@ -90,7 +90,7 @@ select {
 .save-btn:hover { filter: brightness(1.06); }
 .save-btn:disabled { opacity: .6; cursor: default; }
 .share-btn {
-  align-self: flex-end; background: var(--card); color: var(--text);
+  align-self: flex-end; background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px;
   font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
@@ -107,7 +107,7 @@ select {
   backdrop-filter: blur(3px); overflow-y: auto;
 }
 .modal-box {
-  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
   max-width: 760px; width: 100%; padding: 22px 24px 28px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
 }
