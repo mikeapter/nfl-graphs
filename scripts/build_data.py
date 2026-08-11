@@ -954,7 +954,26 @@ def build_standings_scores_trends(games_path: Path, season: int):
             trends[a]["weeks"].append(wk); trends[a]["pd"].append(as_ - hs)
             trends[a]["result"].append("W" if as_ > hs else "L" if as_ < hs else "T")
     trends = {k: v for k, v in trends.items() if v["weeks"]}
-    return standings, scores, trends
+
+    # --- Schedule grid: per team, per REG week -> opponent, home/away, result ---
+    sched = {a: {} for a in TEAMS}
+    maxwk = 0
+    for r in rows:
+        if r["game_type"] != "REG":
+            continue
+        wk = int(r["week"]); maxwk = max(maxwk, wk)
+        h, a = r["home_team"], r["away_team"]
+        done = r["home_score"] != "" and r["away_score"] != ""
+        hs = int(r["home_score"]) if done else None
+        as_ = int(r["away_score"]) if done else None
+        if h in sched:
+            res = ("W" if hs > as_ else "L" if hs < as_ else "T") if done else None
+            sched[h][wk] = {"o": a, "h": 1, "r": res, "pf": hs, "pa": as_}
+        if a in sched:
+            res = ("W" if as_ > hs else "L" if as_ < hs else "T") if done else None
+            sched[a][wk] = {"o": h, "h": 0, "r": res, "pf": as_, "pa": hs}
+    schedule = {"weeks": maxwk, "teams": {a: [sched[a].get(w) for w in range(1, maxwk + 1)] for a in TEAMS}}
+    return standings, scores, trends, schedule
 
 
 # ---------------------------------------------------------------------------
@@ -1121,7 +1140,7 @@ def main():
 
         team_df = load_team_reg(season)
         weekly_epa = compute_team_weekly_epa(pbp)
-        standings, scores, trends = build_standings_scores_trends(games_path, season)
+        standings, scores, trends, schedule = build_standings_scores_trends(games_path, season)
 
         team_record = {row["team"]: row for lst in standings.values() for row in lst}
         teams = build_teams(pbp, team_df, team_record)
@@ -1229,6 +1248,7 @@ def main():
             "standings": standings,
             "scores": scores,
             "trends": trends,
+            "schedule": schedule,
         }
         out = DATA_DIR / f"season_{season}.json"
         out.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")

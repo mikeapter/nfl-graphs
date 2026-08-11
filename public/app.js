@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["home", "teams", "players", "contracts", "injuries", "draft", "standings", "trends", "college", "tendencies", "fantasy"];
+  const TABS = ["home", "teams", "players", "contracts", "injuries", "draft", "standings", "schedule", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -541,7 +541,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); if (v === "injuries") renderInjuries(); if (v === "draft") renderDraft(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); if (v === "injuries") renderInjuries(); if (v === "draft") renderDraft(); if (v === "schedule") renderSchedule(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -796,6 +796,32 @@
       series: [{ type: "bar", barMaxWidth: 26, data: shown.map((r) => ({ value: r.apy, nm: r.n, tm: r.t, apy: r.apy, id: r.id, y: r.y, v: r.v, rk: r.rk, itemStyle: { color: color(r.t) || "#4da3ff", borderRadius: [4, 4, 0, 0] } })), label: { show: true, position: "top", color: AXIS, fontSize: 9, formatter: (o) => money(o.data.apy) } }],
     }, true);
     const inst = ec("con-chart"); inst.off("click"); inst.on("click", conRouteClick);
+  }
+
+  // ---- Schedule grid ------------------------------------------------------
+  function renderSchedule() {
+    const sc = state.data.schedule;
+    const el = $("#sch-grid");
+    if (!sc || !sc.weeks) { el.innerHTML = ""; $("#sch-hint").textContent = "No schedule available for this season."; return; }
+    const wk = sc.weeks;
+    const teams = Object.keys(sc.teams).filter((t) => (sc.teams[t] || []).some(Boolean)).sort((a, b) => {
+      const ma = state.meta.teams[a], mb = state.meta.teams[b];
+      return (ma.conf + ma.div).localeCompare(mb.conf + mb.div) || teamMeta(a).name.localeCompare(teamMeta(b).name);
+    });
+    $("#sch-hint").textContent = `Every team's ${state.season} regular season — green = win, red = loss, @ = away, BYE = off. Click a logo or opponent for that team's profile.`;
+    const head = `<thead><tr><th class="sch-teamh">Team</th>${Array.from({ length: wk }, (_, i) => `<th>${i + 1}</th>`).join("")}</tr></thead>`;
+    const body = teams.map((t) => {
+      const cells = sc.teams[t].map((c) => {
+        if (!c) return `<td class="sch-bye">BYE</td>`;
+        const cls = c.r === "W" ? "sch-w" : c.r === "L" ? "sch-l" : c.r === "T" ? "sch-t" : "sch-up";
+        const opp = (c.h ? "" : "@") + c.o;
+        const sub = c.r ? `${c.pf}–${c.pa}` : "—";
+        return `<td class="sch-cell ${cls}" data-team="${c.o}"><span class="sch-opp">${opp}</span><span class="sch-score">${sub}</span></td>`;
+      }).join("");
+      return `<tr><td class="sch-team" data-team="${t}"><img src="${logo(t)}" alt=""/>${t}</td>${cells}</tr>`;
+    }).join("");
+    el.innerHTML = head + `<tbody>${body}</tbody>`;
+    el.querySelectorAll("[data-team]").forEach((c) => c.addEventListener("click", () => go(`#/team/${c.dataset.team}${seasonSuffix()}`)));
   }
 
   // ---- Injuries -----------------------------------------------------------
