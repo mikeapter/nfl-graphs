@@ -106,6 +106,7 @@ select {
   justify-content: center; padding: 5vh 16px; background: rgba(4, 8, 16, .62);
   backdrop-filter: blur(3px); overflow-y: auto;
 }
+.modal-overlay[hidden] { display: none; }
 .modal-box {
   background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
   max-width: 760px; width: 100%; padding: 22px 24px 28px;
