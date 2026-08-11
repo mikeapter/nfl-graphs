@@ -148,6 +148,8 @@
         <div class="builder">
           <div class="segmented" id="con-view">
             <button class="seg active" data-cview="league">League</button>
+            <button class="seg" data-cview="value">Value</button>
+            <button class="seg" data-cview="market">Market</button>
             <button class="seg" data-cview="team">Team cap</button>
           </div>
           <div class="segmented" id="con-pos">
@@ -165,12 +167,15 @@
           </div>
           <label class="ctl"><span>Team</span><select id="con-team"></select></label>
           <label class="ctl"><span>Sort by</span><select id="con-sort"></select></label>
+          <label class="ctl" id="con-metric-ctl" hidden><span>Production</span><select id="con-metric"></select></label>
+          <label class="ctl chk" id="con-rookie-ctl" hidden><input type="checkbox" id="con-rookie" /><span>Rookie deals only</span></label>
           <label class="ctl"><span>Find</span><input id="con-find" type="search" placeholder="Player name…" autocomplete="off" /></label>
         </div>
         <p class="hint" id="con-hint"></p>
       </div>
       <div class="con-summary" id="con-summary"></div>
-      <div class="table-wrap"><table id="con-table"></table></div>
+      <div class="chart-wrap" id="con-chart-wrap" hidden><div id="con-chart" class="chart tall"></div></div>
+      <div class="table-wrap" id="con-table-wrap"><table id="con-table"></table></div>
     </section>
 
     <!-- Standings & Scores -->

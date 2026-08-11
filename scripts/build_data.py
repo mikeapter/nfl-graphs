@@ -980,7 +980,8 @@ def load_contracts():
     if not p:
         return None
     cols = ["player", "position", "team", "is_active", "year_signed", "years",
-            "value", "apy", "guaranteed", "apy_cap_pct", "gsis_id"]
+            "value", "apy", "guaranteed", "apy_cap_pct", "gsis_id",
+            "draft_year", "draft_round", "draft_overall"]
     return pd.read_parquet(p, columns=cols)
 
 
@@ -1002,12 +1003,18 @@ def build_contracts(df, team_by_id: dict) -> list:
         pos = (r.position or "").strip() if isinstance(r.position, str) else ""
         team = (team_by_id.get(pid) if pid else None) or resolve_contract_team(r.team)
         num = lambda v, d=2: round(float(v), d) if pd.notna(v) else None  # noqa: E731
+        dr = int(r.draft_round) if pd.notna(r.draft_round) else None
+        dy = int(r.draft_year) if pd.notna(r.draft_year) else None
+        do = int(r.draft_overall) if pd.notna(r.draft_overall) else None
+        ys = int(r.year_signed) if pd.notna(r.year_signed) else None
+        # rookie-scale deal: a drafted player still on the contract they signed the draft year
+        rook = 1 if (dy is not None and ys is not None and ys <= dy) else 0
         rows.append({
             "n": name, "p": pos, "pg": POS_GROUP.get(pos, pos or "?"), "t": team, "id": pid,
             "apy": num(r.apy), "v": num(r.value, 1), "g": num(r.guaranteed, 1),
             "y": int(r.years) if pd.notna(r.years) else None,
-            "ys": int(r.year_signed) if pd.notna(r.year_signed) else None,
-            "cap": round(float(r.apy_cap_pct) * 100, 1) if pd.notna(r.apy_cap_pct) else None,
+            "ys": ys, "cap": round(float(r.apy_cap_pct) * 100, 1) if pd.notna(r.apy_cap_pct) else None,
+            "dr": dr, "dy": dy, "do": do, "rk": rook,
         })
     return rows
 

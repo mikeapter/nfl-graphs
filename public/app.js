@@ -27,7 +27,7 @@
     collegeScope: "National", collegeClass: "FBS", collegeMode: "players", collegeTeamRank: "pd", collegeTeamSort: null,
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
     fanView: "rankings", fanPos: "QB", fanScoring: "ppr", fanPassTd6: false, fanSort: null,
-    contracts: null, conView: "league", conPos: "ALL", conTeam: "", conSort: "apy", conFind: "",
+    contracts: null, conView: "league", conPos: "ALL", conTeam: "", conSort: "apy", conFind: "", conMetric: "fantasy_points_ppr", conRookie: false, _renderSeq: 0,
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
     teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
   };
@@ -344,6 +344,8 @@
     // Contracts builder
     segmented("#con-view", (v) => { state.conView = v; renderContracts(); });
     segmented("#con-pos", (v) => { state.conPos = v; renderContracts(); });
+    $("#con-metric").addEventListener("change", (e) => { state.conMetric = e.target.value; renderContracts(); });
+    $("#con-rookie").addEventListener("change", (e) => { state.conRookie = e.target.checked; renderContracts(); });
     $("#con-team").addEventListener("change", (e) => { state.conTeam = e.target.value; renderContracts(); });
     $("#con-sort").addEventListener("change", (e) => { state.conSort = e.target.value; renderContracts(); });
     $("#con-find").addEventListener("input", (e) => { state.conFind = e.target.value; renderContracts(); });
@@ -634,11 +636,16 @@
     el.querySelectorAll(".con-plink").forEach((a) => a.addEventListener("click", () => go(`#/player/${encodeURIComponent(a.dataset.id)}${seasonSuffix()}`)));
     el.querySelectorAll(".con-th").forEach((h) => h.addEventListener("click", () => { state.conSort = h.dataset.csort; $("#con-sort").value = state.conSort; renderContracts(); }));
   }
+  const CON_METRICS = ["fantasy_points_ppr", "fppg", "passing_epa", "rushing_epa", "receiving_epa", "yds_scrim", "total_tds", "snap_pct", "passing_yards", "rushing_yards", "receiving_yards"];
   function conControlsForView() {
-    const team = state.conView === "team";
-    $("#con-pos").style.display = team ? "none" : "";
-    $("#con-sort").closest(".ctl").style.display = team ? "none" : "";
-    $("#con-find").closest(".ctl").style.display = team ? "none" : "";
+    const v = state.conView, show = (sel, on) => { const el = $(sel).closest ? $(sel).closest(".ctl") : $(sel); (el || $(sel)).style.display = on ? "" : "none"; };
+    $("#con-pos").style.display = v === "team" ? "none" : "";
+    show("#con-sort", v === "league");
+    show("#con-find", v === "league");
+    $("#con-metric-ctl").hidden = v !== "value";
+    $("#con-rookie-ctl").hidden = !(v === "value" || v === "market");
+    $("#con-chart-wrap").hidden = !(v === "value" || v === "market");
+    $("#con-table-wrap").hidden = v === "value" || v === "market";
   }
   let conWired = false;
   async function renderContracts() {
@@ -647,10 +654,13 @@
       fillSelect2($("#con-sort"), CON_SORTS.map((s) => [s.k, s.l]), state.conSort);
       const teamOpts = [["", "All teams"], ...Object.keys(state.meta.teams).sort().map((a) => [a, state.meta.teams[a].name])];
       fillSelect2($("#con-team"), teamOpts, state.conTeam);
+      fillSelect2($("#con-metric"), CON_METRICS.map((k) => [k, PSTAT[k].l]), state.conMetric);
       conWired = true;
     }
     conControlsForView();
     if (state.conView === "team") return renderTeamCap(all);
+    if (state.conView === "value") return renderConValue(all);
+    if (state.conView === "market") return renderConMarket(all);
 
     const find = state.conFind.trim().toLowerCase();
     let rows = all.filter((r) =>
@@ -711,6 +721,69 @@
       `</div>` +
       `<div class="cap-breakdown"><div class="cap-bd-title">Average annual value by position group</div>${bars}</div>`;
     conTable(rows, { sortable: false, noTeam: true });
+  }
+  const median = (arr) => { const s = arr.slice().sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+  function conRouteClick(p) { if (p.data && p.data.id) go(`#/player/${encodeURIComponent(p.data.id)}${seasonSuffix()}`); }
+  async function renderConValue(all) {
+    const pmap = {}; state.data.players.forEach((p) => { if (p.id) pmap[p.id] = p; });
+    const metric = PSTAT[state.conMetric];
+    let rows = all.filter((r) => r.cap != null && r.id && pmap[r.id] &&
+      (state.conPos === "ALL" || r.pg === state.conPos) && (!state.conRookie || r.rk));
+    const pts = rows.map((r) => ({ r, pl: pmap[r.id], x: r.cap, y: pval(pmap[r.id], metric) })).filter((o) => o.y != null);
+    $("#con-summary").innerHTML = "";
+    $("#con-hint").textContent = `Cost (cap %) vs production (${metric.l}) · top-left = bargains, bottom-right = overpays · dashed lines = median · faces = who's who · click for the profile`;
+    if (!pts.length) { ec("con-chart").setOption({ title: { text: "No contract + production matches for this filter", left: "center", top: "middle", textStyle: { color: AXIS, fontSize: 13 } } }, true); return; }
+    const mx = median(pts.map((o) => o.x)), my = median(pts.map((o) => o.y));
+    const avatars = {};
+    const token = ++state._renderSeq;
+    await Promise.all(pts.slice(0, 90).map(async (o) => { avatars[o.r.id] = await faceAvatar(o.pl); }));
+    if (token !== state._renderSeq) return; // superseded by a newer render
+    const data = pts.map((o) => {
+      const av = avatars[o.r.id];
+      return { value: [o.x, o.y], id: o.r.id, nm: o.r.n, tm: o.r.t, apy: o.r.apy, rk: o.r.rk,
+        symbol: av ? "image://" + av : "circle", symbolSize: av ? 34 : 11,
+        itemStyle: av ? {} : { color: color(o.r.t), opacity: 0.9 },
+        label: { show: true, position: "bottom", distance: 3, formatter: lastName(o.r.n), color: AXIS, fontSize: 9.5, fontWeight: 600, textBorderColor: BG, textBorderWidth: 3 } };
+    });
+    ec("con-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-value-${state.conPos}-${metric.k}-${state.season}`, "con-chart"),
+      grid: { left: 64, right: 26, top: 30, bottom: 54 },
+      graphic: [
+        { type: "text", left: 70, top: 34, style: { text: "BARGAINS", fill: "#37c98b", fontSize: 11, fontWeight: 800, opacity: 0.85 } },
+        { type: "text", right: 30, bottom: 60, style: { text: "OVERPAYS", fill: "#ff6b6b", fontSize: 11, fontWeight: 800, opacity: 0.85 } },
+        { type: "text", right: 12, bottom: 8, z: 12, silent: true, style: { text: "@mikeapter", fill: AXIS, opacity: 0.55, fontSize: 12, fontWeight: 600 } },
+      ],
+      tooltip: { trigger: "item", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (o) => `<b>${o.data.nm}</b> (${o.data.tm})${o.data.rk ? " · rookie deal" : ""}<br/>Cap %: ${o.value[0]}%<br/>${metric.l}: ${pfmt(o.value[1], metric)}<br/>APY: ${money(o.data.apy)}` },
+      xAxis: { ...axisCommon(), name: "Cost — APY as % of cap →", nameLocation: "middle", nameGap: 32, nameTextStyle: { color: AXIS }, scale: true },
+      yAxis: { ...axisCommon(), name: metric.l, nameLocation: "middle", nameGap: 48, nameTextStyle: { color: AXIS }, scale: true },
+      series: [{ type: "scatter", data, markLine: { silent: true, symbol: "none", lineStyle: { color: "#5a6a86", type: "dashed", opacity: 0.6 }, label: { show: false }, data: [{ xAxis: mx }, { yAxis: my }] } }],
+    }, true);
+    const inst = ec("con-chart"); inst.off("click"); inst.on("click", conRouteClick);
+  }
+  async function renderConMarket(all) {
+    const pos = state.conPos === "ALL" ? "QB" : state.conPos;
+    let rows = all.filter((r) => r.pg === pos && r.apy != null && (!state.conRookie || r.rk)).sort((a, b) => b.apy - a.apy);
+    const apys = rows.map((r) => r.apy);
+    const top5 = apys.slice(0, 5), top10 = apys.slice(0, 10);
+    const avg = (a) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+    $("#con-summary").innerHTML = rows.length
+      ? `<div class="con-stat"><span>${pos} market</span><b>${rows.length} deals</b></div>` +
+        `<div class="con-stat"><span>Top APY</span><b>${money(rows[0].apy)}</b><em>${rows[0].n}</em></div>` +
+        `<div class="con-stat"><span>Top-5 avg</span><b>${money(avg(top5))}</b></div>` +
+        `<div class="con-stat"><span>Top-10 avg</span><b>${money(avg(top10))}</b></div>` +
+        `<div class="con-stat"><span>Median</span><b>${money(median(apys))}</b></div>`
+      : "";
+    $("#con-hint").textContent = `The ${pos} market — every active ${pos} by average annual value, highest first. The curve shows the tiers; click a bar for the profile.`;
+    const shown = rows.slice(0, 30);
+    ec("con-chart").setOption({
+      backgroundColor: "transparent", ...chartExtras(`nfl-market-${pos}-${state.season}`, "con-chart"),
+      grid: { left: 54, right: 20, top: 26, bottom: 96 },
+      tooltip: { trigger: "item", backgroundColor: TIP, borderColor: LINE, textStyle: { color: TEXT }, formatter: (o) => `#${o.dataIndex + 1} <b>${o.data.nm}</b> (${o.data.tm})<br/>APY: ${money(o.data.apy)} · ${o.data.rk ? "rookie deal" : o.data.y + "yr / " + money(o.data.v)}` },
+      xAxis: { type: "category", data: shown.map((r) => lastName(r.n)), axisLine: { lineStyle: { color: LINE } }, axisLabel: { color: AXIS, fontSize: 10, rotate: 55, interval: 0 } },
+      yAxis: { ...axisCommon(), type: "value", name: "APY ($M)", nameTextStyle: { color: AXIS } },
+      series: [{ type: "bar", barMaxWidth: 26, data: shown.map((r) => ({ value: r.apy, nm: r.n, tm: r.t, apy: r.apy, id: r.id, y: r.y, v: r.v, rk: r.rk, itemStyle: { color: color(r.t) || "#4da3ff", borderRadius: [4, 4, 0, 0] } })), label: { show: true, position: "top", color: AXIS, fontSize: 9, formatter: (o) => money(o.data.apy) } }],
+    }, true);
+    const inst = ec("con-chart"); inst.off("click"); inst.on("click", conRouteClick);
   }
 
   const cteam = (school) => { const t = state.college[state.season]; return (t && t.teams && t.teams[school]) || { logo: "", color: "#4da3ff", conf: "", abbr: school }; };
@@ -957,7 +1030,9 @@
     const foc = state.focus && state.focus.type === "player" ? state.focus.id : null;
     const mode = state.playerMark || "faces";
     const avatars = {};
+    const token = ++state._renderSeq;
     if (mode === "faces") await Promise.all(pts.slice(0, 90).map(async (o) => { avatars[o.p.id || o.p.player] = await faceAvatar(o.p); }));
+    if (token !== state._renderSeq) return; // a newer render superseded this one
     const nameLbl = (o, f, pos) => ({ show: true, position: pos, distance: 3, formatter: lastName(o.p.player), color: f ? TEXT : AXIS, fontSize: f ? 12 : 9.5, fontWeight: f ? 800 : 600, textBorderColor: BG, textBorderWidth: 3 });
     const data = pts.map((o) => {
       const key = o.p.id || o.p.player, f = o.p.player === foc, av = avatars[key];
