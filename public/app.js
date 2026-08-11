@@ -1976,8 +1976,15 @@
   }
 
   // ---- Share + card export ------------------------------------------------
+  function profileShareUrl() {
+    const en = state.profileEntity;
+    const base = location.origin + location.pathname.replace(/[^/]*$/, "");
+    if (en && en.type === "player" && en.id && /^\d\d-\d+$/.test(en.id)) return base + "s/p/" + encodeURIComponent(en.id) + ".html";
+    if (en && en.type === "team" && en.id) return base + "s/t/" + encodeURIComponent(en.id) + ".html";
+    return location.href; // college / compare / no stub -> hash link (generic preview)
+  }
   function copyLink(btn) {
-    const url = location.href, old = btn.textContent;
+    const url = profileShareUrl(), old = btn.textContent;
     const done = () => { btn.textContent = "✓ Copied"; setTimeout(() => (btn.textContent = old), 1500); };
     if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, () => fallbackCopy(url, done));
     else fallbackCopy(url, done);

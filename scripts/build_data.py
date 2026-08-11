@@ -1302,6 +1302,13 @@ def main():
     }
     (DATA_DIR / "meta.json").write_text(json.dumps(meta, separators=(",", ":")), encoding="utf-8")
     print(f"\nwrote meta.json  (seasons: {meta['seasons']})")
+
+    # per-entity OG share pages (needs meta.json + season files above)
+    try:
+        import make_share_pages
+        make_share_pages.main()
+    except Exception as e:  # noqa: BLE001
+        print(f"  !! share pages skipped: {e}")
     print("done.")
 
 
