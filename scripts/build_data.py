@@ -82,6 +82,16 @@ TEAMS = {
 }
 LOGO_DIR = ROOT / "public" / "logos"
 ESPN_LOGO = lambda abbr: f"https://a.espncdn.com/i/teamlogos/nfl/500/{TEAMS[abbr][4]}.png"
+# historical/relocated team codes -> our current abbreviations
+TEAM_ALIAS = {"OAK": "LV", "SD": "LAC", "STL": "LA", "LAR": "LA", "SL": "LA", "ARZ": "ARI", "BLT": "BAL", "CLV": "CLE", "HST": "HOU", "SDG": "LAC", "WFT": "WAS", "GNB": "GB", "KAN": "KC", "NWE": "NE", "NOR": "NO", "SFO": "SF", "TAM": "TB"}
+
+
+def norm_team(t):
+    if not isinstance(t, str) or not t:
+        return None
+    t = t.strip().upper()
+    t = TEAM_ALIAS.get(t, t)
+    return t if t in TEAMS else None
 
 
 def download_logos():
@@ -1020,6 +1030,65 @@ def build_contracts(df, team_by_id: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Injuries (weekly report) + Draft picks
+# ---------------------------------------------------------------------------
+def load_injuries(season: int):
+    p = fetch(f"{REL}/injuries/injuries_{season}.parquet", CACHE_DIR / f"inj_{season}.parquet", force=True)
+    return pd.read_parquet(p) if p else None
+
+
+def build_injuries(df) -> dict:
+    if "season_type" in df.columns:
+        reg = df[df["season_type"] == "REG"]
+        df = reg if len(reg) else df
+    if not len(df):
+        return {"latest_week": 0, "current": [], "missed": []}
+    latest = int(df["week"].max())
+    sval = lambda v: v if isinstance(v, str) and v else ""  # noqa: E731
+    current = []
+    for r in df[df["week"] == latest].itertuples(index=False):
+        st = sval(r.report_status) or sval(r.practice_status)
+        if not st:
+            continue
+        current.append({"n": r.full_name, "id": sval(r.gsis_id) or None, "p": sval(r.position),
+                        "t": norm_team(r.team), "st": st,
+                        "inj": sval(r.report_primary_injury) or sval(r.practice_primary_injury)})
+    order = {"Out": 0, "Doubtful": 1, "Questionable": 2}
+    current.sort(key=lambda x: (order.get(x["st"], 3), x["t"] or "ZZ"))
+    missed = {}
+    for r in df[df["report_status"] == "Out"].itertuples(index=False):
+        key = sval(r.gsis_id) or r.full_name
+        m = missed.setdefault(key, {"n": r.full_name, "id": sval(r.gsis_id) or None,
+                                    "p": sval(r.position), "t": norm_team(r.team), "out": 0})
+        m["out"] += 1
+    missed_list = sorted(missed.values(), key=lambda x: -x["out"])
+    return {"latest_week": latest, "current": current, "missed": missed_list}
+
+
+def load_draft():
+    p = fetch(f"{REL}/draft_picks/draft_picks.parquet", CACHE_DIR / "draft_picks.parquet", force=True)
+    return pd.read_parquet(p) if p else None
+
+
+def build_draft(df, since: int = 2000) -> list:
+    df = df[df["season"] >= since]
+    rows = []
+    for r in df.itertuples(index=False):
+        rows.append({
+            "y": int(r.season),
+            "rd": int(r.round) if pd.notna(r.round) else None,
+            "pk": int(r.pick) if pd.notna(r.pick) else None,
+            "t": norm_team(r.team),
+            "n": r.pfr_player_name if isinstance(r.pfr_player_name, str) else "",
+            "p": r.position if isinstance(r.position, str) else "",
+            "col": r.college if isinstance(r.college, str) else "",
+            "id": r.gsis_id if isinstance(r.gsis_id, str) and r.gsis_id else None,
+            "av": int(r.car_av) if pd.notna(r.car_av) else None,
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -1122,6 +1191,17 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"  !! college skipped: {e}")
 
+        # injuries (weekly report -> current + games-missed, lazy per season)
+        try:
+            idf = load_injuries(season)
+            if idf is not None and len(idf):
+                inj = build_injuries(idf)
+                jf = DATA_DIR / f"injuries_{season}.json"
+                jf.write_text(json.dumps({"season": season, **inj}, separators=(",", ":")), encoding="utf-8")
+                print(f"  wrote {jf.name}  ({len(inj['current'])} on report, {len(inj['missed'])} w/ missed games)")
+        except Exception as e:  # noqa: BLE001
+            print(f"  !! injuries skipped: {e}")
+
         # tendencies (personnel / coverage / fronts by situation)
         try:
             tend = build_tendencies(season)
@@ -1173,6 +1253,17 @@ def main():
             print(f"wrote contracts.json  ({len(contracts)} active contracts)")
     except Exception as e:  # noqa: BLE001
         print(f"  !! contracts skipped: {e}")
+
+    # draft picks (all teams, 2000+ -> one file, lazy-loaded by the Draft tab)
+    try:
+        ddf = load_draft()
+        if ddf is not None and len(ddf):
+            draft = build_draft(ddf, since=2000)
+            (DATA_DIR / "draft.json").write_text(
+                json.dumps({"picks": draft, "since": 2000}, separators=(",", ":")), encoding="utf-8")
+            print(f"wrote draft.json  ({len(draft)} picks since 2000)")
+    except Exception as e:  # noqa: BLE001
+        print(f"  !! draft skipped: {e}")
 
     print("\n== Logos ==")
     download_logos()

@@ -304,11 +304,13 @@ tbody tr.hl:hover { background: color-mix(in srgb, var(--accent) 30%, transparen
 #con-table th.con-th { cursor: pointer; user-select: none; }
 #con-table th.con-th:hover { color: var(--text); }
 #con-table th.con-th.on { color: var(--accent); }
-#con-table td.con-rank { color: var(--muted); width: 30px; text-align: left; }
-#con-table td.con-name { text-align: left; font-weight: 600; }
-#con-table td.con-team { text-align: left; color: var(--muted); }
-#con-table td.con-num { text-align: right; font-variant-numeric: tabular-nums; }
-#con-table td.con-num.on { color: var(--text); font-weight: 700; }
+#con-table td.con-rank, #inj-table td.con-rank, #draft-table td.con-rank { color: var(--muted); width: 30px; text-align: left; }
+#con-table td.con-name, #inj-table td.con-name, #draft-table td.con-name { text-align: left; font-weight: 600; }
+#con-table td.con-team, #inj-table td.con-team, #draft-table td.con-team { text-align: left; color: var(--muted); }
+#con-table td.con-num, #inj-table td.con-num, #draft-table td.con-num { text-align: right; font-variant-numeric: tabular-nums; }
+#con-table td.con-num.on, #inj-table td.con-num.on { color: var(--text); font-weight: 700; }
+#inj-table td.inj-detail, #inj-table th.inj-detail, #draft-table td.dft-col, #draft-table th.dft-col { text-align: left; color: var(--muted); }
+.inj-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid; font-size: 12px; font-weight: 700; }
 .con-logo { width: 18px; height: 18px; vertical-align: -4px; margin-right: 6px; }
 .con-plink { color: var(--accent); cursor: pointer; text-decoration: none; }
 .con-plink:hover { text-decoration: underline; }

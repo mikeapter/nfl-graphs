@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["home", "teams", "players", "contracts", "standings", "trends", "college", "tendencies", "fantasy"];
+  const TABS = ["home", "teams", "players", "contracts", "injuries", "draft", "standings", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -28,6 +28,8 @@
     tend: {}, tendTeam: null, tendSide: "off", tendMetric: "grp", tendBreak: "down", tendPtype: "", tendGame: "",
     fanView: "rankings", fanPos: "QB", fanScoring: "ppr", fanPassTd6: false, fanSort: null,
     contracts: null, conView: "league", conPos: "ALL", conTeam: "", conSort: "apy", conFind: "", conMetric: "fantasy_points_ppr", conRookie: false, _renderSeq: 0,
+    injuries: {}, injView: "current", injTeam: "", injStatus: "", injFind: "",
+    draft: null, draftYear: null, draftRound: "", draftTeam: "", draftFind: "",
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
     teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
   };
@@ -346,6 +348,16 @@
     segmented("#con-pos", (v) => { state.conPos = v; renderContracts(); });
     $("#con-metric").addEventListener("change", (e) => { state.conMetric = e.target.value; renderContracts(); });
     $("#con-rookie").addEventListener("change", (e) => { state.conRookie = e.target.checked; renderContracts(); });
+
+    // Injuries + Draft builders
+    segmented("#inj-view", (v) => { state.injView = v; renderInjuries(); });
+    $("#inj-team").addEventListener("change", (e) => { state.injTeam = e.target.value; renderInjuries(); });
+    $("#inj-status").addEventListener("change", (e) => { state.injStatus = e.target.value; renderInjuries(); });
+    $("#inj-find").addEventListener("input", (e) => { state.injFind = e.target.value; renderInjuries(); });
+    $("#draft-year").addEventListener("change", (e) => { state.draftYear = e.target.value; renderDraft(); });
+    $("#draft-round").addEventListener("change", (e) => { state.draftRound = e.target.value; renderDraft(); });
+    $("#draft-team").addEventListener("change", (e) => { state.draftTeam = e.target.value; renderDraft(); });
+    $("#draft-find").addEventListener("input", (e) => { state.draftFind = e.target.value; renderDraft(); });
     $("#con-team").addEventListener("change", (e) => { state.conTeam = e.target.value; renderContracts(); });
     $("#con-sort").addEventListener("change", (e) => { state.conSort = e.target.value; renderContracts(); });
     $("#con-find").addEventListener("input", (e) => { state.conFind = e.target.value; renderContracts(); });
@@ -529,7 +541,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); if (v === "injuries") renderInjuries(); if (v === "draft") renderDraft(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -540,7 +552,7 @@
   }
   function fillSets(el, sets, sel) { el.innerHTML = Object.keys(sets).map((k) => `<option value="${k}">${k}</option>`).join(""); el.value = sel; }
   function fillSelect2(el, pairs, sel) { el.innerHTML = pairs.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); el.value = sel; }
-  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc || b.dataset.cpos || b.dataset.cview || b.dataset.mk); })); }
+  function segmented(sel, cb) { $$(sel + " .seg").forEach((b) => b.addEventListener("click", () => { $$(sel + " .seg").forEach((x) => x.classList.toggle("active", x === b)); cb(b.dataset.type || b.dataset.pos || b.dataset.cat || b.dataset.cls || b.dataset.scope || b.dataset.side || b.dataset.break || b.dataset.st || b.dataset.mode || b.dataset.fv || b.dataset.fpos || b.dataset.sc || b.dataset.cpos || b.dataset.cview || b.dataset.mk || b.dataset.iview); })); }
   function toggleRoles(bs, roles) { $$(bs + " .ctl[data-role]").forEach((c) => { c.hidden = !roles.includes(c.dataset.role); }); }
   function teamControls() { const t = state.teamChart; toggleRoles("#view-teams .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : ["set"]); $("#team-heat-chips").hidden = t !== "heatmap"; if (t === "heatmap") teamChips(); }
   function playerControls() { const t = state.playerChart; toggleRoles("#view-players .builder", t === "scatter" ? ["x", "y"] : t === "bar" ? ["rank"] : t === "heatmap" ? ["set"] : []); $("#player-heat-chips").hidden = t !== "heatmap"; $("#player-mark").hidden = t !== "scatter"; if (t === "heatmap") playerChips(); }
@@ -784,6 +796,79 @@
       series: [{ type: "bar", barMaxWidth: 26, data: shown.map((r) => ({ value: r.apy, nm: r.n, tm: r.t, apy: r.apy, id: r.id, y: r.y, v: r.v, rk: r.rk, itemStyle: { color: color(r.t) || "#4da3ff", borderRadius: [4, 4, 0, 0] } })), label: { show: true, position: "top", color: AXIS, fontSize: 9, formatter: (o) => money(o.data.apy) } }],
     }, true);
     const inst = ec("con-chart"); inst.off("click"); inst.on("click", conRouteClick);
+  }
+
+  // ---- Injuries -----------------------------------------------------------
+  async function ensureInjuries() {
+    if (state.season in state.injuries) return state.injuries[state.season];
+    try { const j = await (await fetch(`./data/injuries_${state.season}.json`)).json(); state.injuries[state.season] = j; return j; }
+    catch (e) { state.injuries[state.season] = null; return null; }
+  }
+  const INJ_COLOR = { Out: "#ff6b6b", Doubtful: "#f6b73c", Questionable: "#4da3ff" };
+  let injWired = false;
+  async function renderInjuries() {
+    const data = await ensureInjuries();
+    if (!injWired) {
+      fillSelect2($("#inj-team"), [["", "All teams"], ...Object.keys(state.meta.teams).sort().map((a) => [a, state.meta.teams[a].name])], state.injTeam);
+      fillSelect2($("#inj-status"), [["", "All statuses"], ["Out", "Out"], ["Doubtful", "Doubtful"], ["Questionable", "Questionable"]], state.injStatus);
+      injWired = true;
+    }
+    const missed = state.injView === "missed";
+    $("#inj-status-ctl").style.display = missed ? "none" : "";
+    const el = $("#inj-table");
+    if (!data) { el.innerHTML = ""; $("#inj-hint").textContent = `No injury report available for ${state.season}.`; $("#inj-table").innerHTML = `<tbody><tr><td class="con-more">No injury data for ${state.season}.</td></tr></tbody>`; return; }
+    const find = state.injFind.trim().toLowerCase();
+    const nameLink = (r) => (r.id && state.data.players.some((p) => p.id === r.id)) ? `<a class="con-plink" data-id="${r.id}">${r.n}</a>` : r.n;
+    const lg = (t) => t && state.meta.teams[t] ? `<img class="con-logo" src="${state.meta.teams[t].logo}" alt=""/>` : "";
+    if (missed) {
+      const rows = data.missed.filter((r) => (!state.injTeam || r.t === state.injTeam) && (!find || r.n.toLowerCase().includes(find)));
+      $("#inj-hint").textContent = `Games flagged "Out" on the ${state.season} weekly report — a proxy for games missed to injury.`;
+      el.innerHTML = `<thead><tr><th>#</th><th class="con-name">Player</th><th>Pos</th><th>Team</th><th>Games missed</th></tr></thead><tbody>` +
+        rows.map((r, i) => `<tr><td class="con-rank">${i + 1}</td><td class="con-name">${nameLink(r)}</td><td>${r.p}</td><td class="con-team">${lg(r.t)}${r.t || "—"}</td><td class="con-num on">${r.out}</td></tr>`).join("") + `</tbody>`;
+    } else {
+      const rows = data.current.filter((r) => (!state.injTeam || r.t === state.injTeam) && (!state.injStatus || r.st === state.injStatus) && (!find || r.n.toLowerCase().includes(find)));
+      $("#inj-hint").textContent = `Latest weekly injury report (week ${data.latest_week}, ${state.season}) · ${rows.length} players designated · click a name for the profile.`;
+      el.innerHTML = `<thead><tr><th>#</th><th class="con-name">Player</th><th>Pos</th><th>Team</th><th>Status</th><th class="inj-detail">Injury</th></tr></thead><tbody>` +
+        rows.map((r, i) => `<tr><td class="con-rank">${i + 1}</td><td class="con-name">${nameLink(r)}</td><td>${r.p}</td><td class="con-team">${lg(r.t)}${r.t || "—"}</td><td><span class="inj-badge" style="color:${INJ_COLOR[r.st] || TEXT};border-color:${(INJ_COLOR[r.st] || TEXT)}55">${r.st}</span></td><td class="inj-detail">${r.inj || "—"}</td></tr>`).join("") + `</tbody>`;
+    }
+    el.querySelectorAll(".con-plink").forEach((a) => a.addEventListener("click", () => go(`#/player/${encodeURIComponent(a.dataset.id)}${seasonSuffix()}`)));
+  }
+
+  // ---- Draft --------------------------------------------------------------
+  async function ensureDraft() {
+    if (state.draft) return state.draft;
+    try { const d = await (await fetch("./data/draft.json")).json(); state.draft = d.picks; return d.picks; }
+    catch (e) { state.draft = []; return []; }
+  }
+  let draftWired = false;
+  async function renderDraft() {
+    const picks = await ensureDraft();
+    if (!draftWired) {
+      const years = [...new Set(picks.map((p) => p.y))].sort((a, b) => b - a);
+      // default to the latest *completed* draft (skip a future/projected year)
+      if (state.draftYear == null) state.draftYear = years.find((y) => y <= state.meta.latest) || years[0];
+      fillSelect2($("#draft-year"), [["", "All years"], ...years.map((y) => [String(y), String(y)])], String(state.draftYear));
+      fillSelect2($("#draft-round"), [["", "All rounds"], ...[1, 2, 3, 4, 5, 6, 7].map((r) => [String(r), "Round " + r])], state.draftRound);
+      fillSelect2($("#draft-team"), [["", "All teams"], ...Object.keys(state.meta.teams).sort().map((a) => [a, state.meta.teams[a].name])], state.draftTeam);
+      draftWired = true;
+    }
+    const find = state.draftFind.trim().toLowerCase();
+    const yr = state.draftYear === "" ? null : +state.draftYear;
+    let rows = picks.filter((p) =>
+      (yr == null || p.y === yr) &&
+      (!state.draftRound || p.rd === +state.draftRound) &&
+      (!state.draftTeam || p.t === state.draftTeam) &&
+      (!find || (p.n && p.n.toLowerCase().includes(find)) || (p.col && p.col.toLowerCase().includes(find))));
+    rows = rows.slice().sort((a, b) => a.y === b.y ? (a.pk || 999) - (b.pk || 999) : b.y - a.y);
+    const CAP = 300, shown = rows.slice(0, CAP);
+    $("#draft-hint").textContent = `${yr == null ? "All drafts since 2000" : yr + " NFL Draft"} · career AV = Pro-Football-Reference approximate value · click a name for the profile (recent players).`;
+    const nameLink = (p) => (p.id && state.data.players.some((x) => x.id === p.id)) ? `<a class="con-plink" data-id="${p.id}">${p.n}</a>` : (p.n || "—");
+    const lg = (t) => t && state.meta.teams[t] ? `<img class="con-logo" src="${state.meta.teams[t].logo}" alt=""/>` : "";
+    const el = $("#draft-table");
+    el.innerHTML = `<thead><tr><th>Year</th><th>Rd</th><th>Pick</th><th class="con-name">Player</th><th>Pos</th><th class="dft-col">College</th><th>Team</th><th>Career AV</th></tr></thead><tbody>` +
+      shown.map((p) => `<tr><td>${p.y}</td><td>${p.rd ?? "—"}</td><td class="con-rank">${p.pk ?? "—"}</td><td class="con-name">${nameLink(p)}</td><td>${p.p || "—"}</td><td class="dft-col">${p.col || "—"}</td><td class="con-team">${lg(p.t)}${p.t || "—"}</td><td class="con-num">${p.av ?? "—"}</td></tr>`).join("") +
+      `</tbody>` + (rows.length > CAP ? `<tfoot><tr><td colspan="8" class="con-more">Showing ${CAP} of ${rows.length} — filter by year, round, or team to narrow.</td></tr></tfoot>` : "");
+    el.querySelectorAll(".con-plink").forEach((a) => a.addEventListener("click", () => go(`#/player/${encodeURIComponent(a.dataset.id)}${seasonSuffix()}`)));
   }
 
   const cteam = (school) => { const t = state.college[state.season]; return (t && t.teams && t.teams[school]) || { logo: "", color: "#4da3ff", conf: "", abbr: school }; };
