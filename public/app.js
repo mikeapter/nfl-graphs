@@ -14,7 +14,7 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const TABS = ["home", "teams", "players", "contracts", "injuries", "draft", "standings", "schedule", "trends", "college", "tendencies", "fantasy"];
+  const TABS = ["home", "weekly", "teams", "players", "contracts", "injuries", "draft", "standings", "schedule", "trends", "college", "tendencies", "fantasy"];
 
   const state = {
     meta: null, season: null, data: null, weekly: {},
@@ -29,6 +29,7 @@
     fanView: "rankings", fanPos: "QB", fanScoring: "ppr", fanPassTd6: false, fanSort: null,
     contracts: null, conView: "league", conPos: "ALL", conTeam: "", conSort: "apy", conFind: "", conMetric: "fantasy_points_ppr", conRookie: false, _renderSeq: 0,
     injuries: {}, injView: "current", injTeam: "", injStatus: "", injFind: "",
+    wkWeek: null, wkStat: "fantasy_points_ppr",
     draft: null, draftYear: null, draftRound: "", draftTeam: "", draftFind: "",
     wkFrom: 1, wkTo: 99, wkMax: 18, rangePlayers: null, rangeKey: null,
     teamWkFrom: 1, teamWkTo: 99, rangeTeams: null, teamRangeKey: null, playerSeasonType: "reg", teamSeasonType: "reg",
@@ -358,6 +359,8 @@
     $("#draft-round").addEventListener("change", (e) => { state.draftRound = e.target.value; renderDraft(); });
     $("#draft-team").addEventListener("change", (e) => { state.draftTeam = e.target.value; renderDraft(); });
     $("#draft-find").addEventListener("input", (e) => { state.draftFind = e.target.value; renderDraft(); });
+    $("#wk-week").addEventListener("change", (e) => { state.wkWeek = +e.target.value; renderWeekly(); });
+    $("#wk-stat").addEventListener("change", (e) => { state.wkStat = e.target.value; renderWeekly(); });
     $("#con-team").addEventListener("change", (e) => { state.conTeam = e.target.value; renderContracts(); });
     $("#con-sort").addEventListener("change", (e) => { state.conSort = e.target.value; renderContracts(); });
     $("#con-find").addEventListener("input", (e) => { state.conFind = e.target.value; renderContracts(); });
@@ -541,7 +544,7 @@
     window.scrollTo(0, 0);
     requestAnimationFrame(() => Object.values(charts).forEach((c) => c.resize()));
   }
-  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); if (v === "injuries") renderInjuries(); if (v === "draft") renderDraft(); if (v === "schedule") renderSchedule(); }
+  function showTab(v) { state.prevTab = v; state.profileEntity = null; activate(v, v); if (v === "home") renderHome(); if (v === "college") renderCollege(); if (v === "tendencies") renderTendencies(); if (v === "fantasy") renderFantasy(); if (v === "contracts") renderContracts(); if (v === "injuries") renderInjuries(); if (v === "draft") renderDraft(); if (v === "schedule") renderSchedule(); if (v === "weekly") renderWeekly(); }
 
   function fillSelect(el, stats, sel) { el.innerHTML = stats.map((s) => `<option value="${s.k}">${s.l}</option>`).join(""); el.value = sel; }
   function fillSelectGrouped(el, stats, order, groupOf, sel) {
@@ -796,6 +799,52 @@
       series: [{ type: "bar", barMaxWidth: 26, data: shown.map((r) => ({ value: r.apy, nm: r.n, tm: r.t, apy: r.apy, id: r.id, y: r.y, v: r.v, rk: r.rk, itemStyle: { color: color(r.t) || "#4da3ff", borderRadius: [4, 4, 0, 0] } })), label: { show: true, position: "top", color: AXIS, fontSize: 9, formatter: (o) => money(o.data.apy) } }],
     }, true);
     const inst = ec("con-chart"); inst.off("click"); inst.on("click", conRouteClick);
+  }
+
+  // ---- This week ----------------------------------------------------------
+  const WK_STATS = ["fantasy_points_ppr", "passing_yards", "rushing_yards", "receiving_yards", "receptions", "passing_tds", "rushing_epa", "receiving_epa"];
+  let wkStatWired = false;
+  async function renderWeekly() {
+    const wp = await ensureWeekly();
+    if (!wkStatWired) { fillSelect2($("#wk-stat"), WK_STATS.filter((k) => PSTAT[k]).map((k) => [k, PSTAT[k].l]), state.wkStat); wkStatWired = true; }
+    const weeks = [...new Set(Object.values(wp).flatMap((p) => p.wk || []))].sort((a, b) => a - b);
+    if (!weeks.length) { $("#wk-scores").innerHTML = ""; $("#wk-leaders").innerHTML = ""; $("#wk-hint").textContent = `No weekly data for ${state.season} yet.`; return; }
+    if (state.wkWeek == null || !weeks.includes(state.wkWeek)) state.wkWeek = weeks[weeks.length - 1];
+    fillSelect2($("#wk-week"), weeks.map((w) => [String(w), "Week " + w]), String(state.wkWeek));
+    $("#wk-hint").textContent = `Week ${state.wkWeek}, ${state.season} · final scores and the week's statistical leaders · click a player or team for the profile.`;
+
+    // scores
+    const key = String(state.wkWeek).padStart(2, "0");
+    const games = (state.data.scores && state.data.scores[key]) || [];
+    const side = (t, sc, win) => `<div class="wk-side${win ? " win" : ""}"><img src="${logo(t)}" alt=""/><span class="wk-ab">${t}</span><b>${sc}</b></div>`;
+    $("#wk-scores").innerHTML = games.length
+      ? games.map((g) => `<div class="wk-game" data-home="${g.home}" data-away="${g.away}">${side(g.away, g.as, g.as > g.hs)}${side(g.home, g.hs, g.hs > g.as)}</div>`).join("")
+      : `<p class="hint">No games recorded for week ${state.wkWeek}.</p>`;
+    $("#wk-scores").querySelectorAll(".wk-side").forEach((s, i) => s.addEventListener("click", (e) => { const g = e.currentTarget.parentElement; const t = e.currentTarget.querySelector(".wk-ab").textContent; go(`#/team/${t}${seasonSuffix()}`); }));
+
+    // leaders
+    const stat = PSTAT[state.wkStat];
+    $("#wk-lead-title").textContent = `Top performers — ${stat.l}`;
+    const pById = {}; state.data.players.forEach((p) => { if (p.id) pById[p.id] = p; });
+    const rows = [];
+    for (const id in wp) {
+      const p = wp[id], i = (p.wk || []).indexOf(state.wkWeek), arr = p[state.wkStat];
+      if (i < 0 || !arr || arr[i] == null) continue;
+      const sp = pById[id];
+      rows.push({ id, v: arr[i], opp: (p.opp || [])[i], name: sp ? sp.player : id, pos: sp ? sp.pos : "", team: sp ? sp.team : "", face: sp ? sp.face : null });
+    }
+    rows.sort((a, b) => stat.hi ? b.v - a.v : a.v - b.v);
+    const top = rows.slice(0, 12);
+    const token = ++state._renderSeq;
+    const avatars = {};
+    await Promise.all(top.map(async (r) => { avatars[r.id] = await faceAvatar({ id: r.id, face: r.face, team: r.team }); }));
+    if (token !== state._renderSeq) return;
+    $("#wk-leaders").innerHTML = top.map((r, i) => {
+      const av = avatars[r.id];
+      const pic = av ? `<img class="wk-face" src="${av}" alt=""/>` : `<img class="wk-face" src="${logo(r.team)}" alt=""/>`;
+      return `<div class="wk-lead" data-id="${r.id}"><span class="wk-rank">${i + 1}</span>${pic}<div class="wk-meta"><div class="wk-name">${r.name}</div><div class="wk-teamline">${r.pos || ""} · ${r.team || ""}${r.opp ? " vs " + r.opp : ""}</div></div><div class="wk-val">${pfmt(r.v, stat)}</div></div>`;
+    }).join("");
+    $("#wk-leaders").querySelectorAll(".wk-lead").forEach((c) => c.addEventListener("click", () => go(`#/player/${encodeURIComponent(c.dataset.id)}${seasonSuffix()}`)));
   }
 
   // ---- Schedule grid ------------------------------------------------------

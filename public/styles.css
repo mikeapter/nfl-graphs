@@ -312,6 +312,29 @@ tbody tr.hl:hover { background: color-mix(in srgb, var(--accent) 30%, transparen
 #inj-table td.inj-detail, #inj-table th.inj-detail, #draft-table td.dft-col, #draft-table th.dft-col { text-align: left; color: var(--muted); }
 .inj-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid; font-size: 12px; font-weight: 700; }
 
+/* This Week */
+.wk-scores { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 22px; }
+.wk-game { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.wk-side { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; }
+.wk-side + .wk-side { border-top: 1px solid var(--line); }
+.wk-side img { width: 22px; height: 22px; }
+.wk-side .wk-ab { flex: 1; font-weight: 600; font-size: 13px; color: var(--muted); }
+.wk-side b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.wk-side.win .wk-ab { color: var(--text); }
+.wk-side.win b { color: var(--text); }
+.wk-side:not(.win) b { color: var(--muted); }
+.wk-side:hover { background: var(--panel-2); }
+.wk-sub { margin: 4px 0 12px; font-size: 16px; }
+.wk-leaders { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.wk-lead { display: flex; align-items: center; gap: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 13px; cursor: pointer; }
+.wk-lead:hover { border-color: var(--accent); }
+.wk-rank { color: var(--muted); font-weight: 700; font-size: 13px; width: 16px; text-align: center; }
+.wk-face { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--panel-2); flex: none; }
+.wk-meta { flex: 1; min-width: 0; }
+.wk-name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-teamline { color: var(--muted); font-size: 12px; }
+.wk-val { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
+
 /* Schedule grid */
 .sch-wrap { overflow-x: auto; }
 #sch-grid { min-width: 900px; border-collapse: separate; border-spacing: 0; }

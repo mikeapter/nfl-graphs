@@ -49,6 +49,7 @@
 
   <nav class="tabs" id="tabs" role="tablist">
     <button class="tab active" data-view="home" role="tab">Home</button>
+    <button class="tab" data-view="weekly" role="tab">This Week</button>
     <button class="tab" data-view="teams" role="tab">Teams</button>
     <button class="tab" data-view="players" role="tab">Players</button>
     <button class="tab" data-view="contracts" role="tab">Contracts</button>
@@ -71,6 +72,21 @@
       </div>
       <div class="home-cards" id="home-cards"></div>
       <div class="home-leaders" id="home-leaders"></div>
+    </section>
+
+    <!-- This Week -->
+    <section class="view" id="view-weekly">
+      <div class="view-head">
+        <h2>This week</h2>
+        <div class="builder">
+          <label class="ctl"><span>Week</span><select id="wk-week"></select></label>
+          <label class="ctl"><span>Leaders by</span><select id="wk-stat"></select></label>
+        </div>
+        <p class="hint" id="wk-hint"></p>
+      </div>
+      <div class="wk-scores" id="wk-scores"></div>
+      <h3 class="wk-sub" id="wk-lead-title">Top performers</h3>
+      <div class="wk-leaders" id="wk-leaders"></div>
     </section>
 
     <!-- Teams explorer -->
