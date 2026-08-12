@@ -1994,42 +1994,74 @@
   const imgCache = {};
   function loadImg(src) { return imgCache[src] || (imgCache[src] = new Promise((res) => { const im = new Image(); im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = () => res(null); im.src = src; })); }
 
+  const shade = (hex, t) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return hex || "#888"; const n = parseInt(m[1], 16); let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; const f = t < 0 ? 0 : 255, a = Math.abs(t); r = Math.round(r + (f - r) * a); g = Math.round(g + (f - g) * a); b = Math.round(b + (f - b) * a); return `rgb(${r},${g},${b})`; };
+  const faceCard = (url) => url && url.replace ? url.replace("/f_auto,q_auto/", "/f_auto,q_auto,w_520,h_520,c_fill,g_face/") : url;
+  // Feed-ready 1200x630 social card: dark, team-color glow behind a round
+  // headshot (or big logo) + logo badge, name, and percentile-ranked bars.
   async function exportCard() {
     const en = state.profileEntity; if (!en) return;
     const btn = $("#prof-save"); btn.disabled = true; btn.textContent = "Rendering…";
     try {
       const cs = getComputedStyle(document.documentElement); const C = (n, f) => (cs.getPropertyValue(n).trim() || f);
-      const col = { bg: C("--bg", BG), panel: C("--panel", "#131a26"), line: C("--line", LINE), text: C("--text", TEXT), muted: C("--muted", AXIS) };
-      let title, sub, accent, rowsData, badgeLogo;
+      const col = { bg: C("--bg", "#0b0f17"), line: C("--line", "#263145"), text: "#f2f5fb", muted: "#93a1b8" };
+      let title, sub, accent, rowsData, headshot = null, teamLogo = null;
       if (en.type === "player") {
         const p = findPlayer(en.id), b = bucket(p.pos), peers = playerPeers(p), keys = (PROFILE_PLAYER[b] || PROFILE_PLAYER.WR).slice(0, 6);
-        title = p.player; sub = `${p.pos || ""} · ${teamMeta(p.team).name} · ${state.season}`; accent = color(p.team); badgeLogo = await loadImg(logo(p.team));
+        title = p.player; sub = `${p.pos || ""} · ${teamMeta(p.team).name} · ${state.season}`; accent = color(p.team);
+        teamLogo = await loadImg(logo(p.team));
+        if (p.face) headshot = await loadImg(faceCard(p.face));
         rowsData = keys.map((k) => { const s = PSTAT[k]; const v = pval(p, s); const rp = v == null ? null : rankPct(peers.map((x) => pval(x, s)), v, s.hi); return { label: s.l, val: pfmt(v, s), pct: rp ? rp.pct : 0, rank: rp ? `#${rp.rank}/${rp.n}` : "" }; });
       } else {
         const teams = state.data.teams, t = teams.find((x) => x.team === en.id), keys = PROFILE_TEAM.slice(0, 6);
         const rec = t.w != null ? `${t.w}-${t.l}${t.t ? "-" + t.t : ""}` : "";
-        title = teamMeta(en.id).name; sub = `${rec} · ${state.season}`; accent = color(en.id); badgeLogo = await loadImg(logo(en.id));
+        title = teamMeta(en.id).name; sub = `${rec ? rec + " · " : ""}${state.season} season`; accent = color(en.id);
+        teamLogo = await loadImg(logo(en.id));
         rowsData = keys.map((k) => { const s = TSTAT[k]; const v = pval(t, s); const rp = v == null ? null : rankPct(teams.map((x) => pval(x, s)), v, s.hi); return { label: s.l, val: pfmt(v, s), pct: rp ? rp.pct : 0, rank: rp ? `#${rp.rank}/${rp.n}` : "" }; });
       }
-      const dpr = 2, W = 760, headH = 132, rowH = 52, pad = 28, H = headH + rowsData.length * rowH + 64;
+      const dpr = 2, W = 1200, H = 630, LW = 430, cx = LW / 2, cy = 250;
       const cv = document.createElement("canvas"); cv.width = W * dpr; cv.height = H * dpr; const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+      // background + subtle team-color glow on the left
       ctx.fillStyle = col.bg; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = accent; ctx.globalAlpha = 0.14; ctx.fillRect(0, 0, W, headH); ctx.globalAlpha = 1;
-      ctx.fillStyle = accent; ctx.fillRect(0, 0, 6, headH);
-      if (badgeLogo) ctx.drawImage(badgeLogo, pad + 4, 30, 72, 72);
-      ctx.fillStyle = col.text; ctx.font = "800 30px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(title, pad + 92, 62);
-      ctx.fillStyle = col.muted; ctx.font = "500 15px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(sub, pad + 92, 88);
+      const glow = ctx.createRadialGradient(cx, cy, 20, cx, cy, 320); glow.addColorStop(0, shade(accent, 0.05)); glow.addColorStop(1, col.bg);
+      ctx.globalAlpha = 0.5; ctx.fillStyle = glow; ctx.fillRect(0, 0, LW + 40, H); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(LW + 30, 54); ctx.lineTo(LW + 30, H - 54); ctx.stroke();
+      // portrait: headshot (players) or big logo (teams), with team-color ring + shadow
+      const R = 132;
+      if (headshot) {
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 34; ctx.shadowOffsetY = 10;
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = shade(accent, -0.3); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R - 4, 0, Math.PI * 2); ctx.clip();
+        const s = Math.max((2 * (R - 4)) / headshot.width, (2 * (R - 4)) / headshot.height), w = headshot.width * s, h = headshot.height * s;
+        ctx.drawImage(headshot, cx - w / 2, cy - h / 2, w, h); ctx.restore();
+        ctx.beginPath(); ctx.arc(cx, cy, R - 2, 0, Math.PI * 2); ctx.lineWidth = 7; ctx.strokeStyle = accent; ctx.stroke();
+        if (teamLogo) ctx.drawImage(teamLogo, cx + R - 66, cy + R - 60, 58, 58);
+      } else if (teamLogo) {
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 8;
+        ctx.drawImage(teamLogo, cx - 118, cy - 118, 236, 236); ctx.restore();
+      }
+      // name + sub (fit name to the left column)
+      ctx.textAlign = "center"; let fs = 42; ctx.font = `800 ${fs}px -apple-system, Segoe UI, Roboto, sans-serif`;
+      while (ctx.measureText(title).width > LW - 44 && fs > 24) { fs -= 2; ctx.font = `800 ${fs}px -apple-system, Segoe UI, Roboto, sans-serif`; }
+      ctx.fillStyle = col.text; ctx.fillText(title, cx, cy + R + 66);
+      ctx.fillStyle = col.muted; ctx.font = "500 18px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(sub, cx, cy + R + 98);
+      ctx.textAlign = "left";
+      // right column: percentile-ranked bars
+      const RX = LW + 66, RW = W - RX - 54;
+      ctx.fillStyle = col.muted; ctx.font = "700 13px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText((en.type === "player" ? "PERCENTILE RANK vs POSITION" : "LEAGUE RANK") + " · " + state.season, RX, 74);
+      const top = 108, rh = 74;
       rowsData.forEach((r, i) => {
-        const y = headH + 20 + i * rowH;
-        ctx.fillStyle = col.muted; ctx.font = "500 14px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.label, pad, y + 6);
-        const bx = pad + 210, bw = W - pad - 130 - bx;
-        ctx.fillStyle = col.line; roundRect(ctx, bx, y - 6, bw, 8, 4); ctx.fill();
-        ctx.fillStyle = barColor(r.pct); roundRect(ctx, bx, y - 6, Math.max(6, bw * r.pct), 8, 4); ctx.fill();
-        ctx.textAlign = "right"; ctx.fillStyle = col.text; ctx.font = "700 16px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.val, W - pad, y + 2);
-        ctx.fillStyle = col.muted; ctx.font = "500 11px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.rank, W - pad, y + 18); ctx.textAlign = "left";
+        const y = top + i * rh;
+        ctx.fillStyle = col.text; ctx.font = "600 17px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.label, RX, y);
+        ctx.textAlign = "right"; ctx.fillStyle = col.text; ctx.font = "800 18px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.val, RX + RW, y);
+        ctx.fillStyle = col.muted; ctx.font = "500 13px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText(r.rank, RX + RW, y + 20); ctx.textAlign = "left";
+        const by = y + 14;
+        ctx.fillStyle = shade(col.bg, 0.12); roundRect(ctx, RX, by, RW, 10, 5); ctx.fill();
+        ctx.fillStyle = barColor(r.pct); roundRect(ctx, RX, by, Math.max(10, RW * r.pct), 10, 5); ctx.fill();
       });
-      ctx.fillStyle = col.muted; ctx.font = "600 13px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText("NFL Graphs · nflverse data", pad, H - 20);
-      ctx.textAlign = "right"; ctx.fillText("@mikeapter", W - pad, H - 20); ctx.textAlign = "left";
+      // footer
+      ctx.fillStyle = col.muted; ctx.font = "600 14px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText("NFL Graphs · nflverse data", RX, H - 30);
+      ctx.textAlign = "right"; ctx.fillStyle = accent; ctx.font = "800 15px -apple-system, Segoe UI, Roboto, sans-serif"; ctx.fillText("@mikeapter", W - 54, H - 30); ctx.textAlign = "left";
       cv.toBlob((blob) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `nfl-${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${state.season}.png`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }, "image/png");
     } finally { btn.disabled = false; btn.textContent = "⬇ Save card"; }
   }
